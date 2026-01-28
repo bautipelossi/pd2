@@ -1,2 +1,2 @@
-# pd2
+# taximaniacos
 Proyecto de Datos II UCM - Movilidad NYC
