@@ -7,136 +7,110 @@ from pathlib import Path
 import sys
 
 
-def download_nyc_taxi_data(limit=1000, save=True, data_dir = "datos/crudos"):
-    """
-    Descarga datos de la API de NYC Taxi de forma simple
+# Ruta al archivo actual (LTC.py)
+BASE_DIR = Path(__file__).resolve()
 
-    Args:
-        limit: Número de registros a descargar
-        save: Guardar en archivo local
-        data_dir: Directorio de los datos crudos donde se guardará
+# Subimos niveles hasta Entrega1_Pd2
+PROJECT_ROOT = BASE_DIR.parents[2]
+
+# Ruta final a datos/crudos
+DATA_CRUDOS_DIR = PROJECT_ROOT / "datos" / "crudos"
+
+
+def download_taxi_data_by_date(
+    start_date: str,
+    end_date: str,
+    limit: int = 50000
+) -> pd.DataFrame:
+    """
+    Descarga datos de NYC Taxi para un rango de fechas usando paginación.
     """
     url = "https://data.cityofnewyork.us/resource/4b4i-vvec.json"
+    offset = 0
+    chunks = []
 
-    print(f"🔍 Conectando a la API...")
-    print(f"📊 URL: {url}")
-    print(f"📈 Límite: {limit} registros")
+    print(f"📅 Descargando desde {start_date} hasta {end_date}")
 
-    #Aegurarnos que existe lla carpeta donde vamos a guardar los datos
-    raw_dir = Path(data_dir)
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    while True:
+        params = {
+            "$limit": limit,
+            "$offset": offset,
+            "$where": (
+                f"tpep_pickup_datetime >= '{start_date}' "
+                f"AND tpep_pickup_datetime < '{end_date}'"
+            )
+        }
 
-    try:
-        # Hacer la petición
-        params = {"$limit": limit}
         response = requests.get(url, params=params)
         response.raise_for_status()
-
-        # Convertir a JSON
         data = response.json()
 
-        print(f"✅ Descargados {len(data)} registros")
-
         if not data:
-            print("⚠️  ¡Cuidado! La API devolvió 0 registros")
-            return None
+            break
 
-        # Convertir a DataFrame de pandas
-        df = pd.DataFrame(data)
+        df_chunk = pd.DataFrame(data)
 
-        # Mostrar información básica
-        print(f"\n📋 Información del dataset:")
-        print(f"   • Registros: {len(df)}")
-        print(f"   • Columnas: {len(df.columns)}")
-        print(f"   • Periodo: {df['tpep_pickup_datetime'].min()} a {df['tpep_pickup_datetime'].max()}")
+        # Convertir fechas
+        df_chunk["tpep_pickup_datetime"] = pd.to_datetime(
+            df_chunk["tpep_pickup_datetime"], errors="coerce"
+        )
+        df_chunk["tpep_dropoff_datetime"] = pd.to_datetime(
+            df_chunk["tpep_dropoff_datetime"], errors="coerce"
+        )
 
-        if save:
-            # Crear nombre de archivo con timestamp
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"nyc_taxi_data_{timestamp}.parquet"
+        chunks.append(df_chunk)
+        offset += limit
 
-            # Guardar en diferentes formatos
-            df.to_parquet(filename, index=False)
-            print(f"\n💾 Datos guardados como: {filename}")
+        print(f"   → {offset} filas descargadas")
 
-            # También guardar como CSV para fácil visualización
-            csv_name = f"nyc_taxi_data_{timestamp}.csv"
-            df.to_csv(csv_name, index=False)
-            print(f"💾 CSV guardado como: {csv_name}")
-
-        return df
-
-    except Exception as e:
-        print(f"❌ Error: {e}")
-        return None
+    return pd.concat(chunks, ignore_index=True)
 
 
-def explore_data(df):
-    """Explorar los datos descargados"""
-    if df is None or df.empty:
-        print("No hay datos para explorar")
-        return
+def save_monthly_data(df: pd.DataFrame, year: int, month: int) -> Path:
+    DATA_CRUDOS_DIR.mkdir(parents=True, exist_ok=True)
 
-    print("\n" + "=" * 50)
-    print("🔎 EXPLORACIÓN DE DATOS")
-    print("=" * 50)
+    filename = f"nyc_taxi_{year}_{month:02d}.csv"
+    path = DATA_CRUDOS_DIR / filename
 
-    # Mostrar primeras filas
-    print("\n📄 Primeras 5 filas:")
-    print(df.head())
+    df.to_csv(path, index=False)
+    print(f"💾 Guardado: {path}")
 
-    # Información de tipos de datos
-    print("\n📊 Tipos de datos:")
-    print(df.dtypes)
-
-    # Estadísticas básicas
-    print("\n🧮 Estadísticas (columnas numéricas):")
-    print(df.describe())
-
-    # Valores nulos
-    print("\n⚠️  Valores nulos por columna:")
-    print(df.isnull().sum())
-
-    # Columnas con fechas
-    date_cols = [col for col in df.columns if 'datetime' in col.lower()]
-    if date_cols:
-        print(f"\n📅 Columnas de fecha/hora: {date_cols}")
-
-        # Convertir a datetime
-        for col in date_cols:
-            df[col] = pd.to_datetime(df[col])
-            print(f"   • {col}: {df[col].min()} → {df[col].max()}")
+    return path
 
 
-# Ejecutar si se llama directamente
+def combine_dataframes(dfs: list[pd.DataFrame]) -> pd.DataFrame:
+    print("🔗 Uniendo todos los DataFrames...")
+    return pd.concat(dfs, ignore_index=True)
+
+
+def main():
+    year = 2023
+    all_dfs = []
+
+    for month in range(1, 13):
+        start_date = f"{year}-{month:02d}-01T00:00:00"
+
+        if month == 12:
+            end_date = f"{year + 1}-01-01T00:00:00"
+        else:
+            end_date = f"{year}-{month + 1:02d}-01T00:00:00"
+
+        df_month = download_taxi_data_by_date(start_date, end_date)
+
+        if not df_month.empty:
+            save_monthly_data(df_month, year, month)
+            all_dfs.append(df_month)
+
+    # Unir todo en un solo DataFrame
+    full_df = combine_dataframes(all_dfs)
+
+    # Guardar dataset completo
+    full_path = DATA_CRUDOS_DIR / f"nyc_taxi_{year}_full.csv"
+    full_df.to_csv(full_path, index=False)
+
+    print(f"\n✅ Dataset completo guardado en: {full_path}")
+    print(f"📊 Total filas: {len(full_df)}")
+
+
 if __name__ == "__main__":
-    print("🚕 NYC TAXI DATA DOWNLOADER")
-    print("=" * 40)
-
-    # Descargar datos de prueba
-    data = download_nyc_taxi_data(limit=1000, save=True)
-
-    if data is not None:
-        # Explorar datos
-        explore_data(data)
-
-        # Mostrar algunas consultas útiles
-        print("\n" + "=" * 50)
-        print("📈 CONSULTAS ÚTILES")
-        print("=" * 50)
-
-        # Top 5 viajes más largos
-        if 'trip_distance' in data.columns:
-            data['trip_distance'] = pd.to_numeric(data['trip_distance'], errors='coerce')
-            print("\n📍 Top 5 viajes más largos:")
-            print(data.nlargest(5, 'trip_distance')[['trip_distance', 'fare_amount', 'total_amount']])
-
-        # Distribución por vendor
-        if 'vendorid' in data.columns:
-            print("\n🏢 Viajes por vendor:")
-            print(data['vendorid'].value_counts())
-
-        # Pagos por tipo
-        if 'payment_type' in data.columns:
-            print("\n💳 Distribución de tipos de pago:")
-            print(data['payment_type'].value_counts())
+    main()
