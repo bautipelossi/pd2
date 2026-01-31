@@ -4,8 +4,9 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-
-#Rutas
+# ===============================
+# Rutas
+# ===============================
 
 BASE_DIR = Path(__file__).resolve()
 PROJECT_ROOT = BASE_DIR.parents[2]   # ajusta si tu estructura cambia
@@ -15,7 +16,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_FILE = DATA_DIR / "nyc_yellow_taxi_2023_sampled.csv"
 
 # ===============================
-# 🌐 Configuración API Socrata
+# Configuración de nuestra API
 # ===============================
 
 URL = "https://data.cityofnewyork.us/resource/4b4i-vvec.json"
@@ -32,7 +33,10 @@ COLUMAS:
     - dolocationid -> id de la zona de destino
     - payment_type -> tipo de método de pago 
     - fare_amount -> tarifa base del taxi
+    - extra -> recargos adicionales por horario nocturno, hora punta, etc.
     - tip_amount -> cantidad de propina dada por el pasajero
+    - tolls_amount -> numero de peajes durante el viaje
+    - congestion_surcharge -> recargo por congestión (tráfico)
     - total_amount -> importe total pagado por el pasajero
 
 """
@@ -47,7 +51,10 @@ COLUMNS = [
     "dolocationid",
     "payment_type",
     "fare_amount",
+    "extra",
     "tip_amount",
+    "tolls_amount",
+    "congestion_surcharge",
     "total_amount"
 ]
 
@@ -56,7 +63,7 @@ DAYS_PER_MONTH = 7     # muestreo: primeros N días del mes
 SLEEP_TIME = 0.2       # respeto al API
 
 # ===============================
-# 🚕 Descarga Taxi Amarillo 2023
+# Descarga Datos Taxi Amarillo 2023
 # ===============================
 
 def download_yellow_taxi_sample_2023():
