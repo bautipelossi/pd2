@@ -13,7 +13,7 @@ PROJECT_ROOT = BASE_DIR.parents[2]   # ajusta si tu estructura cambia
 DATA_DIR = PROJECT_ROOT / "datos" / "crudos"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-OUTPUT_FILE = DATA_DIR / "nyc_yellow_taxi_2023_sampled.csv"
+OUTPUT_FILE = DATA_DIR / "sampled_nyc_yellow_taxi_2023.csv"
 
 # ===============================
 # Configuración de nuestra API
@@ -22,7 +22,7 @@ OUTPUT_FILE = DATA_DIR / "nyc_yellow_taxi_2023_sampled.csv"
 URL = "https://data.cityofnewyork.us/resource/4b4i-vvec.json"
 
 """
-COLUMAS:
+COLUMAS que usaremos:
 
     - vendorid -> empresa que registro el viaje (1: Creative Mobile Technologies, 2: VeriFone)
     - tpep_pickup_datetime -> fecha y hora de inicio del viaje
@@ -41,7 +41,7 @@ COLUMAS:
 
 """
 
-COLUMNS = [
+COLUMNS_NEEDED = [
     "vendorid",
     "tpep_pickup_datetime",
     "tpep_dropoff_datetime",
@@ -56,6 +56,29 @@ COLUMNS = [
     "tolls_amount",
     "congestion_surcharge",
     "total_amount"
+]
+
+# Para la consulta API, necesitamos TODAS las columnas en orden:
+COLUMNS_API = [
+    "vendorid",
+    "tpep_pickup_datetime",
+    "tpep_dropoff_datetime",
+    "passenger_count",
+    "trip_distance",
+    "ratecodeid",        #no nos interesa
+    "store_and_fwd_flag", #no nos interesa
+    "pulocationid",
+    "dolocationid",
+    "payment_type",
+    "fare_amount",
+    "extra",
+    "mta_tax",           #no nos interesa
+    "tip_amount",
+    "tolls_amount",
+    "improvement_surcharge", #no nos interesa
+    "total_amount",
+    "congestion_surcharge",
+    "airport_fee"        #no nos interesa
 ]
 
 LIMIT = 50000          # tamaño de bloque
@@ -88,7 +111,7 @@ def download_yellow_taxi_sample_2023():
                 params = {
                     "$limit": LIMIT,
                     "$offset": offset,
-                    "$select": ",".join(COLUMNS),
+                    "$select": ",".join(COLUMNS_API),
                     "$where": (
                         f"tpep_pickup_datetime >= '{start.isoformat()}' "
                         f"AND tpep_pickup_datetime < '{end.isoformat()}'"
@@ -108,6 +131,7 @@ def download_yellow_taxi_sample_2023():
                     break
 
                 df = pd.DataFrame(data)
+                df = df[COLUMNS_NEEDED]
 
                 df.to_csv(
                     OUTPUT_FILE,
