@@ -1,116 +1,128 @@
-# scripts/download_nyc_taxi.py
 import requests
 import pandas as pd
-import json
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from pathlib import Path
-import sys
 
 
-# Ruta al archivo actual (LTC.py)
+#Rutas
+
 BASE_DIR = Path(__file__).resolve()
+PROJECT_ROOT = BASE_DIR.parents[2]   # ajusta si tu estructura cambia
+DATA_DIR = PROJECT_ROOT / "datos" / "crudos"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# Subimos niveles hasta Entrega1_Pd2
-PROJECT_ROOT = BASE_DIR.parents[2]
+OUTPUT_FILE = DATA_DIR / "nyc_yellow_taxi_2023_sampled.csv"
 
-# Ruta final a datos/crudos
-DATA_CRUDOS_DIR = PROJECT_ROOT / "datos" / "crudos"
+# ===============================
+# 🌐 Configuración API Socrata
+# ===============================
 
+URL = "https://data.cityofnewyork.us/resource/4b4i-vvec.json"
 
-def download_taxi_data_by_date(
-    start_date: str,
-    end_date: str,
-    limit: int = 50000
-) -> pd.DataFrame:
-    """
-    Descarga datos de NYC Taxi para un rango de fechas usando paginación.
-    """
-    url = "https://data.cityofnewyork.us/resource/4b4i-vvec.json"
-    offset = 0
-    chunks = []
+"""
+COLUMAS:
 
-    print(f"📅 Descargando desde {start_date} hasta {end_date}")
+    - vendorid -> empresa que registro el viaje (1: Creative Mobile Technologies, 2: VeriFone)
+    - tpep_pickup_datetime -> fecha y hora de inicio del viaje
+    - tpep_dropoff_datetime -> fecha y hora de final del viaje
+    - passenger_count -> número de pasajeros que recoge el taxi
+    - trip_distance -> distancia recorrida en MILLAS
+    - pulocationid -> id de la zona de recogida (cruzar con Taxi Zone Lookup Table)
+    - dolocationid -> id de la zona de destino
+    - payment_type -> tipo de método de pago 
+    - fare_amount -> tarifa base del taxi
+    - tip_amount -> cantidad de propina dada por el pasajero
+    - total_amount -> importe total pagado por el pasajero
 
-    while True:
-        params = {
-            "$limit": limit,
-            "$offset": offset,
-            "$where": (
-                f"tpep_pickup_datetime >= '{start_date}' "
-                f"AND tpep_pickup_datetime < '{end_date}'"
-            )
-        }
+"""
 
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
+COLUMNS = [
+    "vendorid",
+    "tpep_pickup_datetime",
+    "tpep_dropoff_datetime",
+    "passenger_count",
+    "trip_distance",
+    "pulocationid",
+    "dolocationid",
+    "payment_type",
+    "fare_amount",
+    "tip_amount",
+    "total_amount"
+]
 
-        if not data:
-            break
+LIMIT = 50000          # tamaño de bloque
+DAYS_PER_MONTH = 7     # muestreo: primeros N días del mes
+SLEEP_TIME = 0.2       # respeto al API
 
-        df_chunk = pd.DataFrame(data)
+# ===============================
+# 🚕 Descarga Taxi Amarillo 2023
+# ===============================
 
-        # Convertir fechas
-        df_chunk["tpep_pickup_datetime"] = pd.to_datetime(
-            df_chunk["tpep_pickup_datetime"], errors="coerce"
-        )
-        df_chunk["tpep_dropoff_datetime"] = pd.to_datetime(
-            df_chunk["tpep_dropoff_datetime"], errors="coerce"
-        )
+def download_yellow_taxi_sample_2023():
+    first_write = True
 
-        chunks.append(df_chunk)
-        offset += limit
-
-        print(f"   → {offset} filas descargadas")
-
-    return pd.concat(chunks, ignore_index=True)
-
-
-def save_monthly_data(df: pd.DataFrame, year: int, month: int) -> Path:
-    DATA_CRUDOS_DIR.mkdir(parents=True, exist_ok=True)
-
-    filename = f"nyc_taxi_{year}_{month:02d}.csv"
-    path = DATA_CRUDOS_DIR / filename
-
-    df.to_csv(path, index=False)
-    print(f"💾 Guardado: {path}")
-
-    return path
-
-
-def combine_dataframes(dfs: list[pd.DataFrame]) -> pd.DataFrame:
-    print("🔗 Uniendo todos los DataFrames...")
-    return pd.concat(dfs, ignore_index=True)
-
-
-def main():
-    year = 2023
-    all_dfs = []
+    print("📅 Descargando Yellow Taxi 2023 (muestreo mensual por días)")
 
     for month in range(1, 13):
-        start_date = f"{year}-{month:02d}-01T00:00:00"
+        month_start = datetime(2023, month, 1)
+        print(f"\n🟦 Mes {month:02d} | muestreo {DAYS_PER_MONTH} días")
 
-        if month == 12:
-            end_date = f"{year + 1}-01-01T00:00:00"
-        else:
-            end_date = f"{year}-{month + 1:02d}-01T00:00:00"
+        for day in range(DAYS_PER_MONTH):
+            start = month_start + timedelta(days=day)
+            end = start + timedelta(days=1)
 
-        df_month = download_taxi_data_by_date(start_date, end_date)
+            offset = 0
+            total_day = 0
 
-        if not df_month.empty:
-            save_monthly_data(df_month, year, month)
-            all_dfs.append(df_month)
+            print(f"  📆 Día {start.date()}")
 
-    # Unir todo en un solo DataFrame
-    full_df = combine_dataframes(all_dfs)
+            while True:
+                params = {
+                    "$limit": LIMIT,
+                    "$offset": offset,
+                    "$select": ",".join(COLUMNS),
+                    "$where": (
+                        f"tpep_pickup_datetime >= '{start.isoformat()}' "
+                        f"AND tpep_pickup_datetime < '{end.isoformat()}'"
+                    )
+                }
 
-    # Guardar dataset completo
-    full_path = DATA_CRUDOS_DIR / f"nyc_taxi_{year}_full.csv"
-    full_df.to_csv(full_path, index=False)
+                try:
+                    r = requests.get(URL, params=params, timeout=30)
+                    r.raise_for_status()
+                except requests.exceptions.RequestException as e:
+                    print(f"    ⚠️ Error API: {e}")
+                    break
 
-    print(f"\n✅ Dataset completo guardado en: {full_path}")
-    print(f"📊 Total filas: {len(full_df)}")
+                data = r.json()
 
+                if not data:
+                    break
+
+                df = pd.DataFrame(data)
+
+                df.to_csv(
+                    OUTPUT_FILE,
+                    mode="a",
+                    header=first_write,
+                    index=False
+                )
+
+                first_write = False
+                rows = len(df)
+                total_day += rows
+                offset += LIMIT
+
+                print(f"     → {total_day} filas acumuladas")
+
+                time.sleep(SLEEP_TIME)
+
+    print(f"\n✅ Dataset Yellow Taxi 2023 muestreado guardado en:\n{OUTPUT_FILE}")
+
+# ===============================
+# ▶️ Main
+# ===============================
 
 if __name__ == "__main__":
-    main()
+    download_yellow_taxi_sample_2023()
