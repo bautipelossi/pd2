@@ -2,7 +2,7 @@
 Cleaning_FHV.py
 ----------------
 Limpieza del dataset High Volume FHV Trip Data (NYC 2023)
-Procesamiento por chunks y guardado en CSV
+Procesamiento y guardado en csv
 Proyecto de Datos II
 """
 
