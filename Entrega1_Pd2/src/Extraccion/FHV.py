@@ -44,11 +44,11 @@ SLEEP_TIME = 0.2       # para no matar el API
 def download_fhv_sample_2023():
     first_write = True
 
-    print("📅 Descargando FHV 2023 (muestreo mensual por días)")
+    print(" Descargando FHV 2023 (muestreo mensual por días)")
 
     for month in range(1, 13):
         month_start = datetime(2023, month, 1)
-        print(f"\n🟦 Mes {month:02d} | muestreo {DAYS_PER_MONTH} días")
+        print(f"\n Mes {month:02d} | muestreo {DAYS_PER_MONTH} días")
 
         for day in range(DAYS_PER_MONTH):
             start = month_start + timedelta(days=day)
@@ -57,7 +57,7 @@ def download_fhv_sample_2023():
             offset = 0
             total_day = 0
 
-            print(f"  📆 Día {start.date()}")
+            print(f"   Día {start.date()}")
 
             while True:
                 params = {
@@ -74,7 +74,7 @@ def download_fhv_sample_2023():
                     r = requests.get(URL, params=params, timeout=30)
                     r.raise_for_status()
                 except requests.exceptions.RequestException as e:
-                    print(f"    ⚠️ Error API: {e}")
+                    print(f"     Error API: {e}")
                     break
 
                 data = r.json()
