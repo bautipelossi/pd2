@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # ===============================
-# 📂 Rutas del proyecto
+# Rutas del proyecto
 # ===============================
 
 BASE_DIR = Path(__file__).resolve()
@@ -16,7 +16,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_FILE = DATA_DIR / "nyc_fhv_2023_sampled.csv"
 
 # ===============================
-# 🌐 Configuración API Socrata
+# Configuración API Socrata
 # ===============================
 
 URL = "https://data.cityofnewyork.us/resource/u253-aew4.json"
@@ -38,7 +38,7 @@ DAYS_PER_MONTH = 7     # muestreo: primeros 7 días
 SLEEP_TIME = 0.2       # para no matar el API
 
 # ===============================
-# 🚕 Descarga FHV 2023 (robusta)
+#  Descarga FHV 2023 (robusta)
 # ===============================
 
 def download_fhv_sample_2023():
@@ -100,10 +100,10 @@ def download_fhv_sample_2023():
 
                 time.sleep(SLEEP_TIME)
 
-    print(f"\n✅ Dataset FHV 2023 muestreado guardado en:\n{OUTPUT_FILE}")
+    print(f"\nDataset FHV 2023 muestreado guardado en:\n{OUTPUT_FILE}")
 
 # ===============================
-# ▶️ Main
+#  Main
 # ===============================
 
 if __name__ == "__main__":
