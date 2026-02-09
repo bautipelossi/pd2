@@ -64,14 +64,18 @@ def clean_chunk(df: pd.DataFrame) -> pd.DataFrame:
 # =====================
 # Main
 # =====================
+OUTPUT_DIR = DATA_PROCESSED / "fhv_2023_clean_parquet"
+
 def main():
+    print(">>> Entré a main() <<<")
+
     DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     chunksize = 1_000_000
-    first = True
     total_rows = 0
 
-    print("Iniciando limpieza FHV por chunks (CSV)...")
+    print("Iniciando limpieza FHV por chunks (PARQUET)...")
 
     for i, chunk in enumerate(pd.read_csv(INPUT_FILE, chunksize=chunksize)):
         print(f"Procesando chunk {i}")
@@ -79,18 +83,12 @@ def main():
         clean = clean_chunk(chunk)
         total_rows += len(clean)
 
-        clean.to_csv(
-            OUTPUT_FILE,
-            mode="w" if first else "a",
-            header=first,
-            index=False
-        )
-
-        first = False
+        output_file = OUTPUT_DIR / f"part_{i:03d}.parquet"
+        clean.to_parquet(output_file, index=False)
 
     print("Limpieza finalizada")
     print(f"Filas finales: {total_rows}")
-    print(f"Archivo generado: {OUTPUT_FILE}")
+    print(f"Archivos generados en: {OUTPUT_DIR}")
 
 if __name__ == "__main__":
     main()
