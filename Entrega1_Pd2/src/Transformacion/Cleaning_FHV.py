@@ -92,3 +92,22 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+#unificación parquet
+import pandas as pd
+from pathlib import Path
+
+BASE_DIR = Path(r"C:\Users\Bauti\pd2\Entrega1_Pd2")
+
+PARQUET_DIR = BASE_DIR / "datos" / "procesados" / "fhv_2023_clean_parquet"
+OUTPUT_FILE = BASE_DIR / "datos" / "procesados" / "fhv_2023_clean.parquet"
+
+print("Leyendo parquet por chunks...")
+df = pd.read_parquet(PARQUET_DIR)
+
+print("Guardando parquet unificado...")
+df.to_parquet(OUTPUT_FILE, index=False)
+
+print("Dataset final:", OUTPUT_FILE)
+print("Filas:", len(df))
+
