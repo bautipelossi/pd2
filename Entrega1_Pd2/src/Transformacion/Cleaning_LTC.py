@@ -19,7 +19,7 @@ RAW_DATA_PATH = PROJECT_ROOT / "datos" / "crudos" / "sampled_nyc_yellow_taxi_202
 CLEAN_DATA_DIR = PROJECT_ROOT / "datos" / "limpios"
 CLEAN_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-OUTPUT_PATH = CLEAN_DATA_DIR / "nyc_taxi_clean.csv"
+OUTPUT_PATH = CLEAN_DATA_DIR / "nyc_taxi_clean.parquet"
 
 
 # ===============================
@@ -169,7 +169,9 @@ def main():
     df_clean = clean_taxi_data(df)
 
     print(f"💾 Guardando datos limpios en:\n{OUTPUT_PATH}")
-    df_clean.to_csv(OUTPUT_PATH, index=False)
+    #df_clean.to_csv(OUTPUT_PATH, index=False)
+    df_clean.to_parquet(OUTPUT_PATH, index=False)
+
 
     print(f"📊 Número de filas finales: {len(df_clean)}")
 
