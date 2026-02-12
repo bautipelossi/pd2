@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
+import pyarrow.parquet as pq
 
 # =====================================
 # 📂 RUTAS
@@ -14,12 +15,35 @@ PROJECT_ROOT = BASE_DIR.parents[2]
 DATA_DIR = PROJECT_ROOT / "datos" / "limpios"
 
 TAXI_PATH = DATA_DIR / "nyc_taxi_clean.parquet"
-UBER_PATH = DATA_DIR / "nyc_uber_clean.parquet"
+UBER_PATH = DATA_DIR / "fhv_2023_clean.parquet"
 WEATHER_PATH = DATA_DIR / "nyc_weather_2023_first_week.csv"
 
 #OUTPUT_PATH = DATA_DIR / "taxi_uber_weather_hourly.parquet"
 
 sns.set_style("whitegrid")
+
+
+# =====================================
+# 📌 COLUMNAS A TENER EN CUENTA
+# =====================================
+
+taxi_cols = [
+    'tpep_pickup_datetime',
+    'trip_distance',
+    'pulocationid',
+    'congestion_surcharge',
+    'total_amount',
+    'trip_duration_min',
+    'revenue_per_mile'
+]
+
+fhv_cols = [
+    "pickup_datetime",
+    "pulocationid",
+    "trip_miles",
+    "tips",
+    "driver_pay"
+]
 
 
 # =====================================
@@ -107,8 +131,8 @@ def main():
     # Cargar datos
     # ---------------------
 
-    taxi = pd.read_parquet(TAXI_PATH)
-    uber = pd.read_parquet(UBER_PATH)
+    taxi = pd.read_parquet(TAXI_PATH, columns = taxi_cols)
+    uber = pd.read_parquet(UBER_PATH, columns = fhv_cols)
     weather = pd.read_csv(WEATHER_PATH)
 
     print("Datos cargados correctamente")
