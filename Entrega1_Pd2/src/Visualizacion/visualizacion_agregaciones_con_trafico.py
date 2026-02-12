@@ -5,9 +5,7 @@ from plotly.subplots import make_subplots
 from pathlib import Path
 import os
 
-# =====================================================
-# CONFIGURACIÓN DE RUTAS
-# =====================================================
+# Poner rutas oportunas aquí
 
 # Archivos de Demanda (Taxis/Uber)
 FHV_PATH = r"C:\Users\palon\Downloads\fhv_2023_clean.parquet"
@@ -19,16 +17,15 @@ TRAFICO_PATH = r"C:\Users\palon\Downloads\dataset_trafico_vis_ready.parquet"
 # Lookup de zonas
 ZONE_LOOKUP_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi+_zone_lookup.csv"
 
-# =====================================================
-# 1. CARGA Y PREPROCESAMIENTO DE DEMANDA
-# =====================================================
+
+# CARGA Y PREPROCESAMIENTO DE DEMANDA
 def cargar_demanda():
     print("Cargando datos de Taxis y Ubers...")
     try:
         df_fhv = pd.read_parquet(FHV_PATH)
         df_ylc = pd.read_parquet(YLC_PATH)
     except FileNotFoundError:
-        print("⚠️ No se encontraron los archivos de Taxis/Uber en las rutas especificadas.")
+        print("No se encontraron los archivos de Taxis/Uber en las rutas especificadas.")
         return None
 
     # Estandarización
@@ -51,17 +48,14 @@ def cargar_demanda():
     
     return df_total
 
-# =====================================================
-# 2. CARGA DE TRÁFICO
-# =====================================================
+
+# CARGA DE TRÁFICO
 def cargar_trafico():
     print("Cargando datos de Tráfico...")
     df = pd.read_parquet(TRAFICO_PATH)
     return df
 
-# =====================================================
-# 3. UNIFICACIÓN ESPACIAL (Boroughs)
-# =====================================================
+# UNIFICACIÓN ESPACIAL (Boroughs)
 def mapear_zonas_a_borough(df_demanda):
     print("Mapeando zonas de taxi a Boroughs...")
     try:
@@ -75,10 +69,8 @@ def mapear_zonas_a_borough(df_demanda):
         print(f"No se pudo mapear zonas: {e}")
         return df_demanda
 
-# =====================================================
-# 4. VISUALIZACIONES
-# =====================================================
 
+# VISUALIZACIONES
 def plot_ritmo_ciudad(df_traf, df_dem):
     """
     Gráfico de Doble Eje: Tráfico vs Demanda por Hora
@@ -122,17 +114,17 @@ def plot_comparativa_boroughs_detallado(df_traf, df_dem):
     SEPARANDO Taxis vs Ubers vs Tráfico (3 barras por distrito)
     """
     if "Borough" not in df_dem.columns:
-        print("⚠️ La columna 'Borough' no existe en el dataset de demanda.")
+        print("La columna 'Borough' no existe en el dataset de demanda.")
         return None
 
-    # --- 1. TRÁFICO ---
+    # TRÁFICO
     traf_boro = df_traf.groupby("Boro")["Vol"].sum().reset_index()
     total_trafico = traf_boro["Vol"].sum()
     traf_boro["Porcentaje"] = (traf_boro["Vol"] / total_trafico) * 100
     traf_boro["Tipo"] = "Tráfico"
     traf_boro = traf_boro.rename(columns={"Boro": "Borough"}) 
 
-    # --- 2. DEMANDA (Separada por Tipo) ---
+    # DEMANDA (Separada por Tipo)
     dem_boro = df_dem.groupby(["Borough", "tipo_servicio"]).size().reset_index(name="Viajes")
     totales_por_servicio = df_dem.groupby("tipo_servicio").size().to_dict()
     
@@ -142,7 +134,7 @@ def plot_comparativa_boroughs_detallado(df_traf, df_dem):
     )
     dem_boro = dem_boro.rename(columns={"tipo_servicio": "Tipo"})
     
-    # --- 3. UNIR ---
+    # UNIR Y GRAFICAR
     df_comp = pd.concat([
         traf_boro[["Borough", "Porcentaje", "Tipo"]], 
         dem_boro[["Borough", "Porcentaje", "Tipo"]]
@@ -174,23 +166,23 @@ def plot_comparativa_boroughs_agregado(df_traf, df_dem):
     AGRUPANDO toda la demanda (Taxis + Ubers) vs Tráfico (2 barras por distrito)
     """
     if "Borough" not in df_dem.columns:
-        print("⚠️ La columna 'Borough' no existe en el dataset de demanda.")
+        print("La columna 'Borough' no existe en el dataset de demanda.")
         return None
     
-    # 1. Agregación Tráfico
+    # Agregación Tráfico
     traf_boro = df_traf.groupby("Boro")["Vol"].sum().reset_index()
     total_trafico = traf_boro["Vol"].sum()
     traf_boro["Porcentaje"] = (traf_boro["Vol"] / total_trafico) * 100 
     traf_boro["Tipo"] = "Tráfico (% del total)"
     traf_boro = traf_boro.rename(columns={"Boro": "Borough"}) 
 
-    # 2. Agregación Demanda (TOTAL)
+    # Agregación Demanda (TOTAL)
     dem_boro = df_dem.groupby("Borough")["tipo_servicio"].count().reset_index()
     total_demanda = dem_boro["tipo_servicio"].sum()
     dem_boro["Porcentaje"] = (dem_boro["tipo_servicio"] / total_demanda) * 100 
     dem_boro["Tipo"] = "Demanda Total (% del total)"
 
-    # 3. Unir
+    # Unir
     df_comp = pd.concat([
         traf_boro[["Borough", "Porcentaje", "Tipo"]], 
         dem_boro[["Borough", "Porcentaje", "Tipo"]]
@@ -198,7 +190,7 @@ def plot_comparativa_boroughs_agregado(df_traf, df_dem):
     
     df_comp = df_comp[df_comp["Borough"] != "Unknown"]
 
-    # 4. Graficar
+    # Graficar
     fig = px.bar(df_comp, x="Borough", y="Porcentaje", color="Tipo", barmode="group",
                  title="<b>Disparidad Espacial General:</b> Tráfico vs Demanda Total",
                  color_discrete_map={"Tráfico (% del total)": "gray", "Demanda Total (% del total)": "orange"},
@@ -207,10 +199,8 @@ def plot_comparativa_boroughs_agregado(df_traf, df_dem):
     fig.update_layout(template="plotly_white", yaxis_title="Porcentaje del Total (%)")
     return fig
 
-# =====================================================
-# MAIN
-# =====================================================
 
+# MAIN
 def main():
     # 1. Cargar Datos
     df_demand = cargar_demanda()
@@ -229,35 +219,35 @@ def main():
 
         print("Generando gráficos interactivos...")
         
-        # --- Gráfico 1: Series Temporales ---
+        # Gráfico 1: Series Temporales
         fig1 = plot_ritmo_ciudad(df_traffic, df_demand)
         file_path_1 = output_dir / "trafico_vs_demanda_horario.html"
         fig1.write_html(file_path_1)
-        print(f"✅ Gráfico 1 guardado en: {file_path_1}")
+        print(f"Gráfico 1 guardado en: {file_path_1}")
         # fig1.show() 
 
-        # --- Gráfico 2: Comparativa Detallada (3 barras) ---
+        # Gráfico 2: Comparativa Detallada (3 barras)
         fig2 = plot_comparativa_boroughs_detallado(df_traffic, df_demand)
         if fig2:
             file_path_2 = output_dir / "comparativa_boroughs_detallado.html"
             fig2.write_html(file_path_2)
-            print(f"✅ Gráfico 2 guardado en: {file_path_2}")
+            print(f"Gráfico 2 guardado en: {file_path_2}")
             # fig2.show()
         else:
-            print("❌ No se pudo generar el gráfico detallado.")
+            print("No se pudo generar el gráfico detallado.")
 
-        # --- Gráfico 3: Comparativa Agregada (2 barras) ---
+        # Gráfico 3: Comparativa Agregada (2 barras)
         fig3 = plot_comparativa_boroughs_agregado(df_traffic, df_demand)
         if fig3:
             file_path_3 = output_dir / "comparativa_boroughs_agregado.html"
             fig3.write_html(file_path_3)
-            print(f"✅ Gráfico 3 guardado en: {file_path_3}")
+            print(f"Gráfico 3 guardado en: {file_path_3}")
             # fig3.show() 
         else:
-            print("❌ No se pudo generar el gráfico agregado.")
+            print("No se pudo generar el gráfico agregado.")
 
     else:
-        print("❌ No se pudieron cargar todos los datos.")
+        print("No se pudieron cargar todos los datos.")
 
 if __name__ == "__main__":
     main()
