@@ -252,7 +252,7 @@ def main():
             file_path_3 = output_dir / "comparativa_boroughs_agregado.html"
             fig3.write_html(file_path_3)
             print(f"✅ Gráfico 3 guardado en: {file_path_3}")
-            fig3.show() # Mostramos este último como ejemplo
+            # fig3.show() 
         else:
             print("❌ No se pudo generar el gráfico agregado.")
 

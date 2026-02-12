@@ -31,7 +31,7 @@ def auditar_datos():
     
     nulos = merged['Borough'].isna().sum()
     total = len(merged)
-    print(f"\n⚠️ FILAS PERDIDAS (NaN): {nulos} de {total} ({nulos/total*100:.1f}%)")
+    print(f"\n FILAS PERDIDAS (NaN): {nulos} de {total} ({nulos/total*100:.1f}%)")
 
 if __name__ == "__main__":
     auditar_datos()
