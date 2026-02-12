@@ -22,15 +22,15 @@ OUTPUT_FILE = DATA_DIR / "nyc_fhv_2023_sampled.csv"
 URL = "https://data.cityofnewyork.us/resource/u253-aew4.json"
 
 COLUMNS = [
-    "pickup_datetime",
-    "dropoff_datetime",
-    "pulocationid",
-    "dolocationid",
-    "trip_miles",
-    "base_passenger_fare",
-    "tolls",
-    "tips",
-    "driver_pay"
+    "pickup_datetime", #fecha y hora de recogida
+    "dropoff_datetime", #fecha y hora de la dejada
+    "pulocationid", #id de la zona de recogida
+    "dolocationid", #id de la zona de dejada
+    "trip_miles", #numero de MILLAS que se recorren en el viaje
+    "base_passenger_fare", #tarifa base del viaje
+    "tolls", #
+    "tips", #
+    "driver_pay" #pago al conductor
 ]
 
 LIMIT = 50000          # tamaño de chunk
