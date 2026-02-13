@@ -51,20 +51,25 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │
 ├── 📁 Entrega1_Pd2/               # Directorio principal de la entrega
 │   │
+│   ├── 📁 datos/                  # Almacenamiento de datasets
+│   │   ├── 📁 crudos/             # Datos originales sin procesar (descargados de las fuentes)
+│   │   └── 📁 limpios/            # Datos transformados y optimizados (.parquet)
+│   │
 │   ├── 📁 src/                    # Código fuente del proyecto
 │   │   │
-│   │   ├── 📁 Extraccion/       # Scripts de Extracción
-│   │   │   ├── ClimateNYC.py       
+│   │   ├── 📁 Extraccion/         # Scripts de Extracción
+│   │   │   ├── ClimateNYC.py        
 │   │   │   ├── FHV.py
 │   │   │   ├── LTC.py
 │   │   │   ├── NYCevents.py  
 │   │   │   └── SportEventsNYC.py
-│   │   ├── 📁 Transformacion/     # Scripts de Extracción
+│   │   │
+│   │   ├── 📁 Transformacion/     # Scripts de Transformación y Limpieza
 │   │   │   ├── Cleaning_FHV.py      
 │   │   │   ├── Cleaning_LTC.py
-│   │   │   ├── Cleaning_NYCevents.py       
+│   │   │   ├── Cleaning_NYCevents.py        
 │   │   │   ├── Cleaning_SportEventsNYC.py      
-│   │   │   ├── PreprocesamientoVolumenTrafico.py         
+│   │   │   ├── PreprocesamientoVolumenTrafico.py          
 │   │   │   └── VolumenTraficoParquet.py
 │   │   │
 │   │   └── 📁 Visualizacion/      # Scripts para el análisis cruzado y generación de gráficos
@@ -76,12 +81,13 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │       ├── visualizacion_agregaciones_con_trafico.py
 │   │       ├── visualizacionfhv.py
 │   │       │
-│   │       ├── 📁 Mapa_Interactivo_FHV_TLC/ # Outputs: Gráficos HTML interactivos generados por el código relacionando solo FHV y TLC
+│   │       ├── 📁 Mapa_Interactivo_FHV_TLC/ # Outputs: Gráficos HTML interactivos relacionando solo FHV y TLC
 │   │       │
-│   │       └── 📁 Reporte_Trafico_NYC/ # Outputs: Gráficos HTML interactivos generados por el código relacionados con el tráfico
+│   │       └── 📁 Reporte_Trafico_NYC/      # Outputs: Gráficos HTML interactivos relacionados con el tráfico
 │
 └── README.md                      # Este archivo de documentación
 ```
+
 ---
 
 <a id="instalacion"></a>
