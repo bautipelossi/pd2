@@ -5,16 +5,21 @@ from plotly.subplots import make_subplots
 from pathlib import Path
 import os
 
-# Poner rutas oportunas aquí
+# CONFIGURACIÓN DE RUTAS RELATIVAS
+# BASE_DIR apunta a la carpeta donde está este script (src/Visualizacion)
+BASE_DIR = Path(__file__).resolve().parent
 
-# Archivos de Demanda (Taxis/Uber)
-FHV_PATH = r"C:\Users\palon\Downloads\fhv_2023_clean.parquet"
-YLC_PATH = r"C:\Users\palon\Downloads\nyc_taxi_clean.parquet"
+# PROJECT_ROOT sube dos niveles para llegar a la raíz (Entrega1_Pd2)
+PROJECT_ROOT = BASE_DIR.parents[1]
 
-# Archivo de Tráfico
-TRAFICO_PATH = r"C:\Users\palon\Downloads\dataset_trafico_vis_ready.parquet" 
+# Archivos de Demanda (Taxis/Uber) apuntando a datos/limpios
+FHV_PATH = PROJECT_ROOT / "datos" / "limpios" / "fhv_2023_clean.parquet"
+YLC_PATH = PROJECT_ROOT / "datos" / "limpios" / "nyc_taxi_clean.parquet"
 
-# Lookup de zonas
+# Archivo de Tráfico apuntando a datos/limpios
+TRAFICO_PATH = PROJECT_ROOT / "datos" / "limpios" / "dataset_trafico_vis_ready.parquet" 
+
+# Lookup de zonas (URL Oficial)
 ZONE_LOOKUP_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi+_zone_lookup.csv"
 
 
@@ -26,6 +31,7 @@ def cargar_demanda():
         df_ylc = pd.read_parquet(YLC_PATH)
     except FileNotFoundError:
         print("No se encontraron los archivos de Taxis/Uber en las rutas especificadas.")
+        print(f"Buscando en:\n{FHV_PATH}\n{YLC_PATH}")
         return None
 
     # Estandarización
@@ -52,8 +58,12 @@ def cargar_demanda():
 # CARGA DE TRÁFICO
 def cargar_trafico():
     print("Cargando datos de Tráfico...")
-    df = pd.read_parquet(TRAFICO_PATH)
-    return df
+    try:
+        df = pd.read_parquet(TRAFICO_PATH)
+        return df
+    except FileNotFoundError:
+        print(f"No se encontró el archivo de tráfico en:\n{TRAFICO_PATH}")
+        return None
 
 # UNIFICACIÓN ESPACIAL (Boroughs)
 def mapear_zonas_a_borough(df_demanda):
@@ -211,11 +221,10 @@ def main():
         # 2. Mapear Zonas
         df_demand = mapear_zonas_a_borough(df_demand)
 
-        # 3. Preparar carpeta de salida
-        base_path = Path(__file__).resolve().parent
-        output_dir = base_path / "Reporte_Trafico_NYC"
-        output_dir.mkdir(exist_ok=True)
-        print(f"Directorio de reportes: {output_dir}")
+        # 3. Preparar carpeta de salida (Se crea si no existe)
+        output_dir = BASE_DIR / "Reporte_Trafico_NYC"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"\nDirectorio de reportes: {output_dir}")
 
         print("Generando gráficos interactivos...")
         

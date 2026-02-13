@@ -3,33 +3,40 @@ import plotly.express as px
 import folium
 from folium.plugins import HeatMap
 import os
+from pathlib import Path
 
+# 
 # CONFIGURACIÓN DE RUTAS RELATIVAS
-# Obtiene la ruta del directorio donde está ESTE script
-DIRECTORIO_ACTUAL = os.path.dirname(os.path.abspath(__file__))
+# Obtiene la ruta del directorio donde está ESTE script (src/Visualizacion)
+DIRECTORIO_ACTUAL = Path(__file__).resolve().parent
 
-# Define el archivo de entrada
-ARCHIVO_ENTRADA = r"C:\Users\palon\Downloads\dataset_trafico_vis_ready.csv"
+# PROJECT_ROOT sube dos niveles para llegar a la raíz (Entrega1_Pd2)
+PROJECT_ROOT = DIRECTORIO_ACTUAL.parents[1]
+
+# Define el archivo de entrada (Ahora es PARQUET, en la carpeta datos/limpios)
+ARCHIVO_ENTRADA = PROJECT_ROOT / "datos" / "limpios" / "dataset_trafico_vis_ready.parquet"
 
 # Define la carpeta de salida (se creará dentro del directorio del script)
-CARPETA_SALIDA = os.path.join(DIRECTORIO_ACTUAL, "Reporte_Trafico_NYC")
+CARPETA_SALIDA = DIRECTORIO_ACTUAL / "Reporte_Trafico_NYC"
 
 # Crea la carpeta si no existe
-if not os.path.exists(CARPETA_SALIDA):
+if not CARPETA_SALIDA.exists():
     print(f"Creando carpeta de salida: {CARPETA_SALIDA}")
-    os.makedirs(CARPETA_SALIDA)
+    CARPETA_SALIDA.mkdir(parents=True, exist_ok=True)
+
 
 def cargar_datos(ruta):
-    print(f"--- Cargando dataset desde: {ruta} ---")
+    print(f"Cargando dataset desde:\n{ruta}")
     # Cargamos solo columnas necesarias para optimizar memoria
     cols = ['latitude', 'longitude', 'Vol', 'hora_entera', 'Boro', 'street', 'SegmentID']
     try:
-        df = pd.read_csv(ruta, usecols=cols)
+        # Cambiado a read_parquet ya que ahora nuestro archivo limpio es parquet
+        df = pd.read_parquet(ruta, columns=cols)
         print(f"Datos cargados: {len(df)} registros.")
         return df
     except Exception as e:
         print(f"Error cargando datos: {e}")
-        print("Asegúrate de que el archivo CSV esté en la misma carpeta que este script.")
+        print("Asegúrate de haber ejecutado antes el script de transformación que genera el Parquet.")
         return None
 
 
@@ -68,9 +75,9 @@ def generar_mapa_animado(df):
         title="Evolución del Tráfico Promedio por Hora en NYC"
     )
 
-    archivo = os.path.join(CARPETA_SALIDA, "1_mapa_animado_trafico.html")
+    archivo = CARPETA_SALIDA / "1_mapa_animado_trafico.html"
     fig.write_html(archivo)
-    print(f"Mapa animado guardado en: {archivo}")
+    print(f"Mapa animado guardado en:\n{archivo}")
     print("\n")
 
 
@@ -96,9 +103,9 @@ def generar_mapa_calor(df):
     # Añado capa de calor
     HeatMap(heat_data, radius=10, blur=15, max_zoom=13).add_to(m)
 
-    archivo = os.path.join(CARPETA_SALIDA, "2_mapa_calor_zonas.html")
-    m.save(archivo)
-    print(f"Mapa de calor guardado en: {archivo}")
+    archivo = CARPETA_SALIDA / "2_mapa_calor_zonas.html"
+    m.save(str(archivo)) # Folium requiere string para la ruta
+    print(f"Mapa de calor guardado en:\n{archivo}")
     print("\n")
 
 
@@ -123,9 +130,9 @@ def generar_grafico_lineas(df):
 
     fig.update_layout(xaxis=dict(tickmode='linear', dtick=1))  # Mostrar todas las horas en eje X
 
-    archivo = os.path.join(CARPETA_SALIDA, "3_grafico_horarios_distritos.html")
+    archivo = CARPETA_SALIDA / "3_grafico_horarios_distritos.html"
     fig.write_html(archivo)
-    print(f"Gráfico de líneas guardado en: {archivo}")
+    print(f"Gráfico de líneas guardado en:\n{archivo}")
     print("\n")
 
 
@@ -138,8 +145,8 @@ def main():
         generar_grafico_lineas(df)
 
         print("\nPROCESO FINALIZADO")
-        print(f"Tus reportes están en la carpeta: {CARPETA_SALIDA}")
-        print("Abre los archivos HTML con tu navegador.")
+        print(f"Tus reportes están listos en la carpeta:\n{CARPETA_SALIDA}")
+        print("Abre los archivos HTML con tu navegador para explorarlos.")
 
 
 if __name__ == "__main__":
