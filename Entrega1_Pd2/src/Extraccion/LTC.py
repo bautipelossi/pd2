@@ -4,6 +4,12 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
+"""
+En este Script cargamos los principales datos de viajes en Taxi en la ciudad de Nueva York en el año 2023.
+Hemos parseado los datos por la primera semana de cada mes, debido al volumen total de datos que había disponibles
+y haremos el estudio posterior teniendo esto en cuenta.
+"""
+
 # ===============================
 # Rutas
 # ===============================
