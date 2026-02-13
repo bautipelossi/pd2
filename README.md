@@ -69,8 +69,7 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │   │   ├── Cleaning_LTC.py
 │   │   │   ├── Cleaning_NYCevents.py        
 │   │   │   ├── Cleaning_SportEventsNYC.py      
-│   │   │   ├── PreprocesamientoVolumenTrafico.py          
-│   │   │   └── VolumenTraficoParquet.py
+│   │   │   └── PreprocesamientoVolumenTrafico.py 
 │   │   │
 │   │   └── 📁 Visualizacion/      # Scripts para el análisis cruzado y generación de gráficos
 │   │       ├── LTC_vs_FHV_clima.py
