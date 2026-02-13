@@ -9,10 +9,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve()
 PROJECT_ROOT = BASE_DIR.parents[2]
 
-FHV_PATH = PROJECT_ROOT / "datos" / "procesados" / "fhv_2023_clean.parquet"
-YLC_PATH = PROJECT_ROOT / "datos" / "procesados" / "nyc_taxi_clean.parquet"
+FHV_PATH = PROJECT_ROOT / "datos" / "limpios" / "fhv_2023_clean.parquet"
+YLC_PATH = PROJECT_ROOT / "datos" / "limpios" / "nyc_taxi_clean.parquet"
 
-OUTPUT_PATH = PROJECT_ROOT / "datos" / "procesados" / "resumen_zona.parquet"
+OUTPUT_PATH = PROJECT_ROOT / "datos" / "limpios" / "resumen_zona.parquet"
 
 
 # =====================================================
