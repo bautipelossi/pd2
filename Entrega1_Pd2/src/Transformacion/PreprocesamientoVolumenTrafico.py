@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import os
 from pyproj import Transformer
+from pathlib import Path
 
 # CONFIGURACIÓN
 # Sistema de coordenadas de origen (NYC Long Island ft) y destino (GPS Mundial)
@@ -11,13 +12,12 @@ CRS_DESTINO = 'epsg:4326'
 
 
 def cargar_datos(ruta_archivo):
-    print(f"1. Cargando datos desde: {ruta_archivo} ---")
+    print(f"1. Cargando datos desde:\n{ruta_archivo}")
     if not os.path.exists(ruta_archivo):
         print(f" ERROR: No se encuentra el archivo.")
         return None
     try:
         # Cargamos solo columnas útiles para ahorrar memoria si el archivo es gigante
-
         df = pd.read_csv(ruta_archivo, low_memory=False)
         print(f"Datos cargados. Filas iniciales: {len(df)}")
         print("\n")
@@ -29,7 +29,7 @@ def cargar_datos(ruta_archivo):
 
 
 def preprocesar_fechas(df):
-    print("2. Procesando fechas y filtrando (2023-2024) ---")
+    print("2. Procesando fechas y filtrando (2023-2024)")
 
     # Filtrado inicial rápido con fechas en 2023 y 2024
     if 'Yr' in df.columns:
@@ -56,7 +56,7 @@ def convertir_geometria(df):
     Convierte WKT State Plane (pies) a Latitud/Longitud real (GPS)
     para poder pintarlo en mapas interactivos.
     """
-    print("3. Extrayendo y convirtiendo coordenadas (Geodesia) ---")
+    print("3. Extrayendo y convirtiendo coordenadas (Geodesia)")
 
     if 'WktGeom' not in df.columns:
         return df
@@ -145,9 +145,19 @@ def limpieza_y_features(df):
 
 
 def main():
-    # RUTAS (AJUSTA ESTO)
-    archivo_entrada = r"C:\Users\palon\Downloads\Automated_Traffic_Volume_Counts_20260122.csv"
-    archivo_salida = r"C:\Users\palon\Downloads\dataset_trafico_vis_ready.csv"
+    # BASE_DIR apunta a la carpeta donde está este script (ej: src/Transformacion)
+    BASE_DIR = Path(__file__).resolve().parent
+    
+    # PROJECT_ROOT sube dos niveles para llegar a la raíz (Entrega1_Pd2)
+    # src/Transformacion, src, Entrega1_Pd2
+    PROJECT_ROOT = BASE_DIR.parents[1]
+    
+    # Construimos las rutas: Entrada (crudos), Salida (limpios en formato Parquet)
+    archivo_entrada = PROJECT_ROOT / "datos" / "crudos" / "Automated_Traffic_Volume_Counts_20260122.csv"
+    archivo_salida = PROJECT_ROOT / "datos" / "limpios" / "dataset_trafico_vis_ready.parquet"
+
+    # Verificamos/creamos la carpeta de destino si no existe
+    archivo_salida.parent.mkdir(parents=True, exist_ok=True)
 
     # 1. Carga
     df = cargar_datos(archivo_entrada)
@@ -156,7 +166,7 @@ def main():
         # 2. Fechas
         df = preprocesar_fechas(df)
 
-        # 3. Geometría (CRUCIAL PARA MAPAS)
+        # 3. Geometría (Transformación de coordenadas a GPS)
         df = convertir_geometria(df)
 
         # 4. Limpieza y Enriquecimiento
@@ -175,10 +185,15 @@ def main():
         # Intersección para evitar errores si falta alguna columna
         cols_a_guardar = [c for c in cols_finales if c in df.columns]
 
-        print(f"Guardando {len(df)} registros optimizados en CSV ---")
-        print("\n")
-        df[cols_a_guardar].to_csv(archivo_salida, index=False)
-        print(f"Archivo listo para visualización: {archivo_salida}")
+        # 6. Guardar directamente en PARQUET
+        try:
+            print(f"Guardando {len(df)} registros optimizados en formato PARQUET ---")
+            df[cols_a_guardar].to_parquet(archivo_salida, engine='pyarrow', index=False)
+            print(f"Archivo listo para visualización guardado en:\n{archivo_salida}")
+            print("\n")
+        except Exception as e:
+             print(f" Error al guardar en Parquet: {e}")
+             print("Asegúrate de tener instalada la librería pyarrow (pip install pyarrow)")
 
 
 if __name__ == "__main__":

@@ -65,8 +65,14 @@ def agregar_por_zona(df_total):
         pivot["YLC"] = 0
 
     pivot["total"] = pivot["FHV"] + pivot["YLC"]
-    pivot["ratio_fhv_ylc"] = pivot["FHV"] / (pivot["YLC"] + 1)
+
+
+    # Market share FHV
+    pivot["market_share_fhv"] = pivot["FHV"] / (pivot["FHV"] + pivot["YLC"] + 1)
+
+    # Diferencia absoluta
     pivot["diff_fhv_minus_ylc"] = pivot["FHV"] - pivot["YLC"]
+
 
     return pivot
 

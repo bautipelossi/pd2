@@ -28,8 +28,8 @@ COLUMNS = [
     "dolocationid", #id de la zona de dejada
     "trip_miles", #numero de MILLAS que se recorren en el viaje
     "base_passenger_fare", #tarifa base del viaje
-    "tolls", #
-    "tips", #
+    "tolls", #importe total de los peajes durante el viaje
+    "tips", #propina al conductor
     "driver_pay" #pago al conductor
 ]
 
