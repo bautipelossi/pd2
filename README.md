@@ -35,9 +35,9 @@
 Los datos utilizados en este proyecto provienen de fuentes públicas y han sido procesados para su análisis:
 
 * **Taxis Amarillos (YLC):** [Explicar brevemente de dónde viene, ej: NYC TLC Trip Record Data].
-* **Vehículos de Alquiler (Uber/Lyft - FHV):** [Explicar brevemente].
-* **Tráfico de NYC:** [Explicar qué mide este dataset].
-* **Taxi Zone Lookup:** Archivo oficial para mapear los Location IDs con los distritos (Boroughs) de Nueva York.
+* **Vehículos de Alquiler (Uber/Lyft - FHV):** (High-Volume For-Hire Vehicle (FHV) Trip Data 2023) Este dataset de la Comisión de Taxis y Limusinas (TLC) del Ayuntamiento de Nueva York contiene registros detallados de viajes realizados por vehículos de alquiler de alto volumen durante el año 2023. Se consideran FHV de alto volumen aquellas compañías que superan los 10.000 viajes mensuales (como Uber o Lyft). Cada registro corresponde a un viaje individual y contiene variables temporales, espaciales y económicas.. En particular, incluye la fecha y hora de recogida y finalización, los identificadores de la zona de origen y destino según el sistema oficial de “Taxi Zones” de NYC, la distancia recorrida en millas y la duración del trayecto, así como distintos componentes tarifarios (tarifa base abonada por el pasajero, los peajes, las propinas y pago al conductor).
+
+* **Tráfico de NYC:** El dataset es Traffic Volume Counts (Historical) y viene de la web NYC OpenData. Este es un conjunto de datos histórico estático. El Departamento de Transporte de la Ciudad de Nueva York (NYC DOT) utiliza Registradores Automáticos de Tráfico (ATR) para recopilar recuentos de muestras del volumen de tráfico en cruces de puentes y carreteras.
 
 ---
 
