@@ -68,13 +68,14 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │   │   ├── Cleaning_FHV.py      
 │   │   │   ├── Cleaning_LTC.py
 │   │   │   ├── Cleaning_NYCevents.py        
-│   │   │   ├── Cleaning_SportEventsNYC.py      
+│   │   │   ├── Cleaning_SportEventsNYC.py
+│   │       ├── agregaciones.py
+│   │       ├── agregaciones_hora.py      
 │   │   │   └── PreprocesamientoVolumenTrafico.py 
 │   │   │
 │   │   └── 📁 Visualizacion/      # Scripts para el análisis cruzado y generación de gráficos
 │   │       ├── LTC_vs_FHV_clima.py
 │   │       ├── VisualizacionTrafico.py
-│   │       ├── agregaciones.py
 │   │       ├── agregaciones_hora.py
 │   │       ├── prueba_barrios.py
 │   │       ├── visualizacion_agregaciones_con_trafico.py
