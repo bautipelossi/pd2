@@ -1,5 +1,27 @@
+import numpy as np
 import pandas as pd
 from pathlib import Path
+import time
+
+"""
+    Este script lo usaremos para centralizar y preparar los datos de movilidad de taxis tradicionales (YLC)
+    y de vehículos de transporte con conductor (FHV/Uber) de Nueva York, agregándolos por hora y combinándolos 
+    con información meteorológica. 
+    
+    Se crea un dataset limpio y unificado que contiene, para cada hora:
+    - 'YLC'
+    - 'FHV' : el número total de viajes por tipo de servicio
+    - 'total' : numero total de viajes
+    - 'market_share' : el market share de FHV
+    - 'ratio' : el ratio FHV/YLC
+    - 'temperature_2m' : temperatura
+    - 'precipitation' : precipitación
+    - 'rain' : precipitación
+    - 'snowfall' : nieve
+    - 'snow_depth' : profundidad de nieve
+    
+"""
+
 
 # =====================================
 # 📂 RUTAS
@@ -33,13 +55,21 @@ COLUMNS_FHV = [
     'trip_miles',
     'base_passenger_fare',
     'tolls',
-    'tips'
+    'tips',
     'trip_duration_min'
 ]
+
+
 def load_data():
+
+    init_time = time.time()
+
     ltc = pd.read_parquet(LTC_PATH, columns = COLUMNS_LTC)
-    fhv = pd.read_parquet(FHV_PATH)
+    fhv = pd.read_parquet(FHV_PATH, columns = COLUMNS_FHV)
     weather = pd.read_csv(WEATHER_PATH)
+
+    end_time = time.time()
+    print(f"Tiempo de carga: {(end_time-init_time):.4f} \n")
 
     return ltc, fhv, weather
 
@@ -48,11 +78,13 @@ def load_data():
 # 2. PREPARACIÓN TEMPORAL
 # ==========================================
 
-def prepare_datetime(ltc, fhv, weather):
+def prepare_data(ltc, fhv):
 
-    #TODO: Meter esto en una funcion a parte
+    init_time = time.time()
+
+    #Normalizamos nombres de las columnas para que no haya conflictos
     ltc.rename(columns={
-        'tpep_pickup_datetime': 'pickup_datetime',
+        'tpep_pickup_datetime': 'pickup_datetime'
     }, inplace=True)
 
     fhv.rename(columns={
@@ -60,77 +92,116 @@ def prepare_datetime(ltc, fhv, weather):
         'base_passenger_fare': 'fare_amount'
     }, inplace=True)
 
+    #añadimos columnas faltantes que puedan ser de valor
     fhv['total_amount'] = fhv['fare_amount'] + fhv['tolls']
 
-    #TODO: Lo de arriba separarlo de aqui
+    #Aseguramos formato datetime en todas las columnas de tipo fecha
     ltc["pickup_datetime"] = pd.to_datetime(ltc["pickup_datetime"])
     fhv["pickup_datetime"] = pd.to_datetime(fhv["pickup_datetime"])
-    weather.index = pd.to_datetime(weather.index)
+    #weather.index = pd.to_datetime(weather.index)
 
     ltc["datetime_hour"] = ltc["pickup_datetime"].dt.floor("h")
     fhv["datetime_hour"] = fhv["pickup_datetime"].dt.floor("h")
 
-    return ltc, fhv, weather
+    end_time = time.time()
+    print(f"Tiempo de preparado: {(end_time - init_time):.4f} \n")
+
+    return ltc, fhv
 
 
 # ==========================================
 # 3. AGREGACIÓN POR SERVICIO
 # ==========================================
 
-def aggregate_service(df, service_name):
+def aggregate_service(ltc, fhv):
 
-    agg = (
-        df.groupby("datetime_hour")
-        .agg(
-            trip_count=("pickup_datetime", "count"),
-            avg_fare=("fare_amount", "mean"),
-            avg_trip_distance=("trip_distance", "mean"),
-            avg_trip_duration=("trip_duration_min", "mean"),
-            total_revenue=("total_amount", "sum"),
-        )
-        .reset_index()
+    init_time = time.time()
+
+    ltc_agg = (
+        ltc.groupby(["datetime_hour"])
+        .size()
+        .reset_index(name="YLC")
     )
 
-    agg["service_type"] = service_name
+    fhv_agg = (
+        fhv.groupby(["datetime_hour"])
+        .size()
+        .reset_index(name="FHV")
+    )
 
-    return agg
+    # Merge ambos
+    merged = pd.merge(
+        ltc_agg,
+        fhv_agg,
+        on=["datetime_hour"],
+        how="outer"
+    ).fillna(0)
+    merged["YLC"] = merged["YLC"].astype(int)
+    merged["FHV"] = merged["FHV"].astype(int)
+
+    merged["total"] = merged["YLC"] + merged["FHV"]
+
+    merged["market_share"] = np.where(
+        merged["total"] > 0,
+        merged["FHV"] / merged["total"],
+        0
+    )
+
+    merged["ratio"] = merged["FHV"] / (merged["YLC"] + 1)
+
+    end_time = time.time()
+    print(f"Tiempo de merge de servicios: {(end_time - init_time):.4f} \n")
+
+    return merged
 
 
 # ==========================================
-# 4. VARIABLES TEMPORALES
+# 4. PREPARAR WEATHER
 # ==========================================
 
-def add_time_features(df):
+def prepare_weather(weather):
 
-    df["hour"] = df["datetime_hour"].dt.hour
-    df["weekday"] = df["datetime_hour"].dt.weekday
-    df["month"] = df["datetime_hour"].dt.month
-    df["is_weekend"] = df["weekday"].isin([5, 6])
+    init_time = time.time()
 
-    return df
+    weather["datetime_hour"] = pd.to_datetime(weather["date"])
+
+    # Quitar timezone
+    weather["datetime_hour"] = weather["datetime_hour"].dt.tz_localize(None)
+
+    weather = weather.drop(columns=["date"])
+
+    # Floor por seguridad
+    weather["datetime_hour"] = weather["datetime_hour"].dt.floor("h")
+
+    end_time = time.time()
+    print(f"Tiempo de preparacion de weather: {(end_time - init_time):.4f} \n")
+
+    return weather
 
 
 # ==========================================
 # 5. MERGE CON CLIMA
 # ==========================================
 
-def merge_weather(mobility_df, weather_df):
+def merge_weather(mobility, weather):
 
+    init_time = time.time()
 
-    weather_df = weather_df.reset_index().rename(
-        columns={"date": "datetime_hour"}
-    )
-
-    weather_df['datetime_hour'] = pd.to_datetime(weather_df['datetime_hour'])
-
-    if hasattr(weather_df['datetime_hour'].dt, 'tz'):
-        weather_df['datetime_hour'] = weather_df['datetime_hour'].dt.tz_localize(None)
-
-    merged = mobility_df.merge(
-        weather_df,
+    merged = mobility.merge(
+        weather,
         on="datetime_hour",
         how="left"
     )
+
+    columnas = ['temperature_2m', 'precipitation', 'rain', 'snowfall', 'snow_depth']
+    merged[columnas] = merged[columnas].fillna(0)
+
+    merged = merged.sort_values("datetime_hour")
+    merged.set_index("datetime_hour", inplace=True)
+    merged = merged.drop_duplicates()
+
+    end_time = time.time()
+    print(f"Tiempo de merge de weather: {(end_time - init_time):.4f} \n")
 
     return merged
 
@@ -141,8 +212,8 @@ def merge_weather(mobility_df, weather_df):
 
 def save_dataset(df):
 
-    df.to_parquet(OUTPUT_PATH, index=False)
-    print("Dataset agregado guardado correctamente.")
+    df.to_parquet(OUTPUT_PATH)#, index=False
+    print("✅ Dataset agregado guardado correctamente.")
 
 
 # ==========================================
@@ -151,20 +222,30 @@ def save_dataset(df):
 
 def main():
 
+    init_time = time.time()
+
+    print("📦 Cargando datos...")
     ltc, fhv, weather = load_data()
 
-    ltc, fhv, weather = prepare_datetime(ltc, fhv, weather)
+    print("⚙️ Preparando movilidad...")
+    ltc, fhv = prepare_data(ltc, fhv)
 
-    ltc_agg = aggregate_service(ltc, "taxi")
-    fhv_agg = aggregate_service(fhv, "uber")
+    print("📊 Agregando movilidad...")
+    mobility = aggregate_service(ltc, fhv)
 
-    mobility = pd.concat([ltc_agg, fhv_agg], ignore_index=True)
+    print("🌦 Preparando clima...")
+    weather = prepare_weather(weather)
 
-    mobility = add_time_features(mobility)
+    print("🔗 Merge movilidad + clima...")
+    final_df = merge_weather(mobility, weather)
 
-    mobility_weather = merge_weather(mobility, weather)
+    print("💾 Guardando...")
+    save_dataset(final_df)
 
-    save_dataset(mobility_weather)
+    print("🚀 Listo.")
+
+    end_time = time.time()
+    print(f"Tiempo del proceso entero: {(end_time - init_time):.4f} \n")
 
 
 if __name__ == "__main__":
