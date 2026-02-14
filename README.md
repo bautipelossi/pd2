@@ -7,7 +7,7 @@
 
 ---
 
-## 📑 Índice
+##  Índice
 1. [Descripción del Proyecto](#descripcion)
 2. [Orígenes de Datos](#origenes)
 3. [Estructura del Proyecto](#estructura)
@@ -19,7 +19,7 @@
 ---
 
 <a id="descripcion"></a>
-## 💡 Descripción del Proyecto
+##  Descripción del Proyecto
 
 **Objetivos principales:**
 * Objetivo 1: Explorar y extraer datos útiles sobre taxis, ubers, clima, eventos y tráfico en NYC.
@@ -30,7 +30,7 @@
 ---
 
 <a id="origenes"></a>
-## 📊 Orígenes de Datos
+## Orígenes de Datos
 
 Los datos utilizados en este proyecto provienen de fuentes públicas y han sido procesados para su análisis:
 
@@ -42,7 +42,7 @@ Los datos utilizados en este proyecto provienen de fuentes públicas y han sido 
 ---
 
 <a id="estructura"></a>
-## 📁 Estructura del Proyecto
+## Estructura del Proyecto
 
 El repositorio está organizado de forma modular, separando claramente los datos crudos, los datos procesados y el código fuente:
 
@@ -90,7 +90,7 @@ El repositorio está organizado de forma modular, separando claramente los datos
 ---
 
 <a id="instalacion"></a>
-## ⚙️ Instalación y Requisitos
+##  Instalación y Requisitos
 
 Para replicar este proyecto en tu máquina local, sigue estos pasos:
 
@@ -114,7 +114,7 @@ Para replicar este proyecto en tu máquina local, sigue estos pasos:
 ---
 
 <a id="uso"></a>
-## 🚀 Uso y Ejecución
+##  Uso y Ejecución
 
 Para replicar el análisis de este proyecto correctamente, debes seguir el flujo lógico de los datos (Pipeline ETL). El orden de ejecución de las carpetas es el siguiente: **1. Extracción ➔ 2. Transformación ➔ 3. Visualización** (ojo con las rutas de los datos).
 
@@ -157,7 +157,7 @@ Con los datos procesados, finalmente puedes ejecutar los scripts de la carpeta `
 ---
 
 <a id="futuro"></a>
-## 🔮 Próximos Pasos (Future Work)
+##  Próximos Pasos (Future Work)
 
 Para ampliar el alcance y la profundidad de este análisis, se proponen las siguientes mejoras futuras:
 
@@ -167,12 +167,12 @@ Para ampliar el alcance y la profundidad de este análisis, se proponen las sigu
 ---
 
 <a id="autores"></a>
-## ✒️ Autores (Grupo Taxómanos)
+## Autores (Grupo Taxómanos)
 
-* **Pablo Alonso** - *Data Analyst / Developer*
-* **Rodrigo Jesús-Portanet** - *Data Analyst / Developer*
-* **Bautista Pelossi** - *Data Analyst / Developer*
-* **Óscar Marín** - *Data Analyst / Developer*
+* **Pablo Alonso** - *Data Scientist / Developer*
+* **Rodrigo Jesús-Portanet** - *Data Scientist / Developer*
+* **Bautista Pelossi** - *Data Scientist / Developer*
+* **Óscar Marín** - *Data Scientist / Developer*
 
 
 
