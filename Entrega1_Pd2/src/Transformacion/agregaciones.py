@@ -8,10 +8,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve()
 PROJECT_ROOT = BASE_DIR.parents[2]
 
-FHV_PATH = PROJECT_ROOT / "datos" / "procesados" / "fhv_2023_clean.parquet"
-YLC_PATH = PROJECT_ROOT / "datos" / "procesados" / "nyc_taxi_clean.parquet"
+FHV_PATH = PROJECT_ROOT / "datos" / "limpios" / "fhv_2023_clean.parquet"
+YLC_PATH = PROJECT_ROOT / "datos" / "limpios" / "nyc_taxi_clean.parquet"
 
-OUTPUT_PATH = PROJECT_ROOT / "datos" / "procesados" / "resumen_zona_hora.parquet"
+OUTPUT_PATH = PROJECT_ROOT / "datos" / "limpios" / "resumen_zona_hora.parquet"
 
 
 # =====================================================
@@ -30,7 +30,6 @@ def cargar_y_normalizar():
         raise RuntimeError(f"FHV no tiene 'pulocationid'. Columnas: {list(df_fhv.columns)}")
 
     # YLC: normalmente trae tpep_pickup_datetime + pulocationid
-    # En tu agregaciones.py lo renombrabas a pickup_datetime
     if "pickup_datetime" not in df_ylc.columns:
         if "tpep_pickup_datetime" in df_ylc.columns:
             df_ylc = df_ylc.rename(columns={"tpep_pickup_datetime": "pickup_datetime"})
