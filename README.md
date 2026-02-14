@@ -55,6 +55,8 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │   ├── 📁 crudos/             # Datos originales sin procesar (descargados de las fuentes)
 │   │   └── 📁 limpios/            # Datos transformados y optimizados (.parquet)
 │   │
+│   ├── 📁 graphs/                 # Directorio donde acaban las gráficas .png (incluido en el .gitignore)
+|   |
 │   ├── 📁 src/                    # Código fuente del proyecto
 │   │   │
 │   │   ├── 📁 Extraccion/         # Scripts de Extracción
