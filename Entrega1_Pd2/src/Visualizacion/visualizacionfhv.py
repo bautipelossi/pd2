@@ -11,7 +11,7 @@ BASE_DIR = Path(__file__).resolve()
 PROJECT_ROOT = BASE_DIR.parents[2]
 
 RESUMEN_HORA_PATH = PROJECT_ROOT / "datos" / "limpios" / "resumen_zona_hora.parquet"
-ZONES_PATH = PROJECT_ROOT / "datos" / "limpios" / "taxi_zones.shp"
+ZONES_PATH = PROJECT_ROOT / "datos" / "crudos" / "taxi_zones.shp"
 
 OUTPUT_DIR = PROJECT_ROOT / "datos" / "salidas_html"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
