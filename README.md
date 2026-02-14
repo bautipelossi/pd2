@@ -70,7 +70,6 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │   │   ├── Cleaning_FHV.py      
 │   │   │   ├── Cleaning_LTC.py
 │   │   │   ├── Cleaning_NYCevents.py        
-│   │   │   ├── Cleaning_SportEventsNYC.py
 │   │       ├── agregaciones.py
 │   │       ├── agregaciones_hora.py      
 │   │   │   └── PreprocesamientoVolumenTrafico.py 
@@ -82,6 +81,7 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │       ├── prueba_barrios.py
 │   │       ├── visualizacion_agregaciones_con_trafico.py
 │   │       ├── visualizacionfhv.py
+|   |       ├── Visualizacion_Events.py
 │   │       │
 │   │       ├── 📁 Mapa_Interactivo_FHV_TLC/ # Outputs: Gráficos HTML interactivos relacionando solo FHV y TLC
 │   │       │
