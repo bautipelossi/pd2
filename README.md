@@ -174,7 +174,7 @@ Para ampliar el alcance y la profundidad de este análisis, se proponen las sigu
 
 * **Pablo Alonso** - *Data Scientist / Developer*
 * **Rodrigo Jesús-Portanet** - *Data Scientist / Developer*
-* **Bautista Pelossi** - *Data Scientist / Developer*
+* **Bautista Pelossi Schweizer** - *Data Scientist / Developer*
 * **Óscar Marín** - *Data Scientist / Developer*
 
 
