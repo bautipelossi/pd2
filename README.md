@@ -39,6 +39,12 @@ Los datos utilizados en este proyecto provienen de fuentes públicas y han sido 
 
 * **Tráfico de NYC:** El dataset es Traffic Volume Counts (Historical) y viene de la web NYC OpenData. Este es un conjunto de datos histórico estático. El Departamento de Transporte de la Ciudad de Nueva York (NYC DOT) utiliza Registradores Automáticos de Tráfico (ATR) para recopilar recuentos de muestras del volumen de tráfico en cruces de puentes y carreteras.
 
+* **Eventos en NYC:** El dataset es NYC Permitted Event Information - Historical y viene de la web NYC OpenData. Se trata de un conjunto de datos histórico estático que recoge información sobre eventos que requieren permiso oficial en la ciudad de Nueva York, como desfiles, festivales, carreras, eventos culturales, rodajes o concentraciones públicas. Cada registro incluye información como el nombre del evento, tipo de evento, agencia responsable, distrito (borough), localización, y fechas y horas de inicio y finalización. Este dataset permite identificar eventos multitudinarios que potencialmente pueden alterar los patrones normales de tráfico y movilidad en la ciudad.
+
+* **Partidos de la MLB en NYC:** Utilizando la MLB Stats API, la API oficial de datos de Major League Baseball (MLB), hemos obtenido datos sobre partidos de béisbol en los dos estadios de los equipos más importantes de Nueva York, Yankee Stadium y Citi Field. Hemos utilizado estos datos para complementar los obtenidos de eventos, ya que estos partidos son los que más gente mueven y pueden alterar el tráfico significativamente.
+
+* **Datos meteorológicos en NYC:** Para incorporar condiciones meteorológicas, se utilizó la API de Open-Meteo, un servicio gratuito que proporciona datos históricos. Se descargaron variables de temperatura, precipitaciones y niveles de nieve en cada hora para la ciudad de Nueva York. Estos datos permiten controlar el efecto del clima sobre el volumen de tráfico.
+
 ---
 
 <a id="estructura"></a>
