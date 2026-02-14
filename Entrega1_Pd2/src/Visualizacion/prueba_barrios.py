@@ -1,8 +1,16 @@
 import pandas as pd
+from pathlib import Path
+
 
 # Rutas
-FHV_PATH = r"C:\Users\palon\Downloads\fhv_2023_clean.parquet"
-YLC_PATH = r"C:\Users\palon\Downloads\nyc_taxi_clean.parquet"
+BASE_DIR = Path(__file__).resolve()
+PROJECT_ROOT = BASE_DIR.parents[2]
+
+DATA_DIR = PROJECT_ROOT / "datos" / "limpios"
+
+FHV_PATH = DATA_DIR / "fhv_2023_clean.parquet"
+YLC_PATH = DATA_DIR / "nyc_taxi_clean.parquet"
+
 ZONE_LOOKUP_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi+_zone_lookup.csv"
 
 def auditar_datos():

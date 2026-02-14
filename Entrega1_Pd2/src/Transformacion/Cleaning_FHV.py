@@ -18,7 +18,7 @@ print("Archivo:", __file__)
 BASE_DIR = Path(__file__).resolve().parents[2]
 
 DATA_RAW = BASE_DIR / "datos" / "crudos"
-DATA_PROCESSED = BASE_DIR / "datos" / "procesados"
+DATA_PROCESSED = BASE_DIR / "datos" / "limpios"
 
 INPUT_FILE = DATA_RAW / "nyc_fhv_2023_sampled.csv"
 OUTPUT_FILE = DATA_PROCESSED / "fhv_2023_clean.csv"
