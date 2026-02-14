@@ -2,6 +2,21 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 
+"""
+    EN este Script se hace un único dataset en el que se combinan los datos de 
+    los taxis con los de Uber, dando un extra de información, sobre el volumen
+    de viajes, el ratio o el tamaño del mercado.
+    
+    Columnas del dataset nuevo:
+        - "LocationID" : ID de la localización donde comienza el viaje (int64)
+        - "pickup_hour" : hora de comienzo del viaje (int64)
+        - "FHV" : volumen absoluto de viajes FHV que se realizan en esa hora (int64)
+        - "YLC" : volumne absoluto de viajes en taxi que se realizan en esa hora (int64)
+        - "total" : tamaño del mercado, FHV + YLC (int64)
+        - "market_share" : porcentaje de viajes en FHV sobre el total (float64)
+        - "ratio" : ventaja relativa FHV vs YLC (float64)
+"""
+
 # =====================================================
 # RUTAS 
 # =====================================================
