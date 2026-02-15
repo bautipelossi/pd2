@@ -118,7 +118,7 @@ Para replicar este proyecto en tu máquina local, sigue estos pasos:
 
 3. **Instala las dependencias**
    ```bash
-   pip install pandas...
+   pip install -r requirements.txt
    ```
 
 ---
