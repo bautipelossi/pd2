@@ -160,6 +160,9 @@ def main():
     
     print("Limpiando eventos...")
     df_eventos = limpiar_eventos(df_eventos)
+
+    print("Guardando eventos limpios)
+    df_eventos.to_parquet(LIMPIOS_DIR / "eventos_limpios.parquet", index=False)
     
     print("Preparando fechas...")
     df_eventos, df_trafico = preparar_fechas(df_eventos, df_trafico)
