@@ -82,7 +82,7 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │   │   └── PreprocesamientoVolumenTrafico.py 
 │   │   │
 │   │   └── 📁 Visualizacion/      # Scripts para el análisis cruzado y generación de gráficos
-│   │       ├── LTC_vs_FHV_clima.py
+│   │       ├── YLC_vs_FHV_clima.py
 │   │       ├── VisualizacionTrafico.py
 │   │       ├── agregaciones_hora.py
 │   │       ├── prueba_barrios.py
@@ -92,7 +92,9 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │       │
 │   │       ├── 📁 Mapa_Interactivo_FHV_TLC/ # Outputs: Gráficos HTML interactivos relacionando solo FHV y TLC
 │   │       │
-│   │       └── 📁 Reporte_Trafico_NYC/      # Outputs: Gráficos HTML interactivos relacionados con el tráfico
+│   │       ├── 📁 Reporte_Trafico_NYC/      # Outputs: Gráficos HTML interactivos relacionados con el tráfico
+|   |       |
+|   |       └── 📁 YLC_FHV_clima/            # Outputs: Gráfico HTML interactivo analizando el crecimiento de demanda de FHV y YLC 
 │
 ├── requirements.txt               # Archivo para instalar las librerías del proyecto
 │
