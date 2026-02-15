@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # ===============================
-# 📂 Rutas del proyecto
+#  Rutas del proyecto
 # ===============================
 
 BASE_DIR = Path(__file__).resolve()
