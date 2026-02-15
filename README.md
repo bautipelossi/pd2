@@ -94,6 +94,8 @@ El repositorio está organizado de forma modular, separando claramente los datos
 │   │       │
 │   │       └── 📁 Reporte_Trafico_NYC/      # Outputs: Gráficos HTML interactivos relacionados con el tráfico
 │
+├── requirements.txt               # Archivo para instalar las librerías del proyecto
+│
 └── README.md                      # Este archivo de documentación
 ```
 
