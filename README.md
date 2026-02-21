@@ -1,4 +1,4 @@
-# 🧠 Procesamiento de Lenguaje Natural — Prácticas (UCM)
+# Procesamiento de Lenguaje Natural
 **Bautista Pelossi Schweizer, Ignacio Ramírez Suárez**  
 Facultad de Informática | Universidad Complutense de Madrid
 
