@@ -3,7 +3,6 @@
 Facultad de Informática | Universidad Complutense de Madrid
 
 > Repositorio con las actividades prácticas del curso **Procesamiento de Lenguaje Natural (PLN)**.  
-> Incluye: **Práctica 1 (Agente autónomo con Butler)** y **Práctica 2 (Audios/Pangramas y síntesis)**.
 
 ---
 
