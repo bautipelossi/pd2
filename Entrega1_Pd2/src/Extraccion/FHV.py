@@ -34,7 +34,7 @@ COLUMNS = [
 ]
 
 LIMIT = 50000          # tamaño de chunk
-DAYS_PER_MONTH = 7     # muestreo: primeros 7 días
+DAYS_PER_MONTH = 14     # muestreo: primeros 14 días
 SLEEP_TIME = 0.2       # para no matar el API
 
 # ===============================
