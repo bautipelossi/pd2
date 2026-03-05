@@ -125,6 +125,15 @@ Para replicar este proyecto en tu máquina local, sigue estos pasos:
    pip install -r requirements.txt
    ```
 
+Para el uso de MinIO también es necesaria la creación de un .env con los siguientes parámetros
+   ```bash
+   MINIO_ENDPOINT=minio.fdi.ucm.es
+   MINIO_ACCESS_KEY=TU_ACESS_KEY_PERSONAL
+   MINIO_SECRET_KEY=TU_SECRET_KEY_PERSONAL
+   MINIO_BUCKET=pd2
+   MINIO_GROUP_PATH=taxomanos
+   ```
+
 ---
 
 <a id="uso"></a>
