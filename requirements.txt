@@ -23,3 +23,14 @@ branca
 matplotlib
 seaborn
 plotly
+
+# 5. Procesamiento Distribuido (Clúster MinIO)
+pyspark
+findspark
+s3fs
+
+# 6. Machine Learning (Modelado y Comparación)
+scikit-learn
+
+# 7. Despliegue de Aplicación Web (SaaS MVP)
+streamlit
