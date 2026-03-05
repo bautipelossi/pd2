@@ -2,11 +2,12 @@
 Cleaning_FHV.py
 ----------------
 Limpieza del dataset High Volume FHV Trip Data (NYC 2023)
-Procesamiento y guardado en csv
+Procesamiento y guardado en parquet
 Proyecto de Datos II
 """
 
 import pandas as pd
+import pyarrow.dataset as ds
 from pathlib import Path
 
 print("=== Cleaning_FHV.py EJECUTADO ===")
@@ -20,8 +21,9 @@ BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_RAW = BASE_DIR / "datos" / "crudos"
 DATA_PROCESSED = BASE_DIR / "datos" / "limpios"
 
-INPUT_FILE = DATA_RAW / "nyc_fhv_2023_sampled.csv"
-OUTPUT_FILE = DATA_PROCESSED / "fhv_2023_clean.csv"
+INPUT_FILE = DATA_RAW / "fhv_2023_sampled_full.parquet"
+OUTPUT_DIR = DATA_PROCESSED / "fhv_2023_clean_parquet"
+OUTPUT_FILE_FINAL = DATA_PROCESSED / "fhv_2023_clean.parquet"
 
 # =====================
 # Cleaning
@@ -61,26 +63,23 @@ def clean_chunk(df: pd.DataFrame) -> pd.DataFrame:
 
     return df
 
-# =====================
-# Main
-# =====================
-OUTPUT_DIR = DATA_PROCESSED / "fhv_2023_clean_parquet"
-
 def main():
     print(">>> Entré a main() <<<")
 
     DATA_PROCESSED.mkdir(parents=True, exist_ok=True)
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    chunksize = 1_000_000
+    chunk_size = 1_000_000
     total_rows = 0
 
     print("Iniciando limpieza FHV por chunks (PARQUET)...")
 
-    for i, chunk in enumerate(pd.read_csv(INPUT_FILE, chunksize=chunksize)):
+    dataset = ds.dataset(INPUT_FILE, format="parquet")
+
+    for i, batch in enumerate(dataset.to_batches(batch_size=chunk_size)):
         print(f"Procesando chunk {i}")
 
-        clean = clean_chunk(chunk)
+        clean = clean_chunk(batch.to_pandas())
         total_rows += len(clean)
 
         output_file = OUTPUT_DIR / f"part_{i:03d}.parquet"
@@ -90,24 +89,16 @@ def main():
     print(f"Filas finales: {total_rows}")
     print(f"Archivos generados en: {OUTPUT_DIR}")
 
+    # Unificación parquet
+    print("Leyendo parquet limpio por partes para unificar...")
+    parts = sorted(OUTPUT_DIR.glob("part_*.parquet"))
+    df_final = pd.concat([pd.read_parquet(p) for p in parts], ignore_index=True)
+
+    print("Guardando parquet unificado...")
+    df_final.to_parquet(OUTPUT_FILE_FINAL, index=False)
+
+    print("Dataset final:", OUTPUT_FILE_FINAL)
+    print("Filas:", len(df_final))
+
 if __name__ == "__main__":
     main()
-
-#unificación parquet
-import pandas as pd
-from pathlib import Path
-
-BASE_DIR = Path(r"C:\Users\Bauti\pd2\Entrega1_Pd2")
-
-PARQUET_DIR = BASE_DIR / "datos" / "procesados" / "fhv_2023_clean_parquet"
-OUTPUT_FILE = BASE_DIR / "datos" / "procesados" / "fhv_2023_clean.parquet"
-
-print("Leyendo parquet por chunks...")
-df = pd.read_parquet(PARQUET_DIR)
-
-print("Guardando parquet unificado...")
-df.to_parquet(OUTPUT_FILE, index=False)
-
-print("Dataset final:", OUTPUT_FILE)
-print("Filas:", len(df))
-
