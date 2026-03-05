@@ -34,7 +34,7 @@ DATA_DIR = PROJECT_ROOT / "datos" / "limpios"
 
 FHV_PATH = DATA_DIR / "fhv_2023_clean.parquet"
 LTC_PATH = DATA_DIR / "nyc_taxi_clean.parquet"
-WEATHER_PATH = DATA_DIR / "nyc_weather_2023_first_week.csv"
+WEATHER_PATH = DATA_DIR / "nyc_weather_2023_nyc_weather_2023_first_half.csv"
 
 OUTPUT_PATH = DATA_DIR / "hourly_aggregate.parquet"
 

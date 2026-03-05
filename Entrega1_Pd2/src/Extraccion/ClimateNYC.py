@@ -2,8 +2,17 @@ import openmeteo_requests
 import pandas as pd
 import requests_cache
 from retry_requests import retry
+from pathlib import Path
 
 # Setup the Open-Meteo API client with cache and retry on error
+
+BASE_DIR = Path(__file__).resolve()
+PROJECT_ROOT = BASE_DIR.parents[2]   # ajusta si tu estructura cambia
+DATA_DIR = PROJECT_ROOT / "datos" / "crudos"
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+OUTPUT_FILE = DATA_DIR / "nyc_weather_2023_first_half.csv"
+
 cache_session = requests_cache.CachedSession('.cache', expire_after = -1)
 retry_session = retry(cache_session, retries = 5, backoff_factor = 0.2)
 openmeteo = openmeteo_requests.Client(session = retry_session)
@@ -51,16 +60,16 @@ hourly_data["snow_depth"] = hourly_snow_depth
 hourly_dataframe = pd.DataFrame(data = hourly_data)
 print("\nHourly data\n", hourly_dataframe)
 
-hourly_dataframe.to_csv("nyc_weather_2023_first_week.csv", index=False)
+hourly_dataframe.to_csv(OUTPUT_FILE, index=False)
 
-df = pd.read_csv("nyc_weather_2023_first_week.csv", parse_dates=["date"])
+df = pd.read_csv(OUTPUT_FILE, parse_dates=["date"])
 
 df["day"] = df["date"].dt.day
 
-df_first_week = df[df["day"] <= 7].copy()
+df_first_week = df[df["day"] <= 14].copy()
 
 df_first_week.drop(columns=["day"], inplace=True)
 
 print(df_first_week.head(20))
 
-df_first_week.to_csv("nyc_weather_2023_first_week.csv", index=False)
+df_first_week.to_csv(OUTPUT_FILE, index=False)
