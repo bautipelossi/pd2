@@ -15,7 +15,7 @@ def filtrar_mlb_primera_semana(input_path: Path):
     df["start_time_ny"] = pd.to_datetime(df["start_time_ny"], errors="coerce")
     df["end_time_ny"] = pd.to_datetime(df["end_time_ny"], errors="coerce")
 
-    df_first_week = df[df["start_time_ny"].dt.day.between(1, 7)].copy()
+    df_first_week = df[df["start_time_ny"].dt.day.between(14)].copy()
     df_first_week.sort_values("start_time_ny", inplace=True)
 
     print(f"Partidos en la primera semana de cada mes: {len(df_first_week)}")
@@ -152,8 +152,8 @@ def cargar_eventos_mlb(path_csv, id_offset):
 
 def main():
     
-    eventos_path = CRUDOS_DIR / "NYC_events_2023_first_week.parquet"
-    trafico_path =CRUDOS_DIR / "dataset_trafico_vis_ready.csv"
+    eventos_path = CRUDOS_DIR / "NYC_events_2023_first_half.parquet"
+    trafico_path = CRUDOS_DIR / "dataset_trafico_vis_ready.csv"
     
     print("Cargando datasets...")
     df_eventos, df_trafico = cargar_datasets(eventos_path, trafico_path)

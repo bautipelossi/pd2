@@ -8,12 +8,17 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve()
 PROJECT_ROOT = BASE_DIR.parents[2]   # ajusta si tu estructura cambia
-DATA_DIR = PROJECT_ROOT / "datos" / "crudos"
+DATA_DIR = PROJECT_ROOT / "datos" / "limpios"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 OUTPUT_FILE = DATA_DIR / "nyc_weather_2023_first_half.csv"
 
-cache_session = requests_cache.CachedSession('.cache', expire_after = -1)
+CACHE_DIR = PROJECT_ROOT / "cache"
+CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+# Crear el archivo de cache en esa carpeta
+cache_file = CACHE_DIR / "openmeteo_cache.sqlite"
+cache_session = requests_cache.CachedSession(str(cache_file), expire_after=-1)
 retry_session = retry(cache_session, retries = 5, backoff_factor = 0.2)
 openmeteo = openmeteo_requests.Client(session = retry_session)
 
