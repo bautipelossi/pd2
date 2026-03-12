@@ -34,3 +34,6 @@ scikit-learn
 
 # 7. Despliegue de Aplicación Web (SaaS MVP)
 streamlit
+
+# 8. Variables de Entorno y Seguridad
+python-dotenv
