@@ -145,11 +145,11 @@ def limpieza_y_features(df):
 
 
 def main():
-    # BASE_DIR apunta a la carpeta donde está este script (ej: src/Transformacion)
+    # BASE_DIR apunta a la carpeta donde está este script (ej: src/02_Transformacion)
     BASE_DIR = Path(__file__).resolve().parent
     
     # PROJECT_ROOT sube dos niveles para llegar a la raíz (Entrega1_Pd2)
-    # src/Transformacion, src, Entrega1_Pd2
+    # src/02_Transformacion, src, Entrega1_Pd2
     PROJECT_ROOT = BASE_DIR.parents[1]
     
     # Construimos las rutas: Entrada (crudos), Salida (limpios en formato Parquet)

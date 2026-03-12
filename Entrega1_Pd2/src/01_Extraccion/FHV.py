@@ -24,7 +24,6 @@ DAILY_DIR.mkdir(parents=True, exist_ok=True)
 URL = "https://data.cityofnewyork.us/resource/u253-aew4.json"
 
 COLUMNS = [
-<<<<<<< HEAD
     "pickup_datetime", #fecha y hora de recogida
     "dropoff_datetime", #fecha y hora de la dejada
     "pulocationid", #id de la zona de recogida
@@ -39,22 +38,7 @@ COLUMNS = [
 LIMIT = 50000          # tamaño de chunk
 DAYS_PER_MONTH = 14     # muestreo: primeros 14 días
 SLEEP_TIME = 0.2       # para no matar el API
-=======
-    "pickup_datetime",
-    "dropoff_datetime",
-    "pulocationid",
-    "dolocationid",
-    "trip_miles",
-    "base_passenger_fare",
-    "tolls",
-    "tips",
-    "driver_pay"
-]
 
-LIMIT = 50000
-DAYS_PER_MONTH = 14   # ← CAMBIO PEDIDO
-SLEEP_TIME = 0.2
->>>>>>> 209a6e7 (Cambio muestreo a 14 días mensual y a formato parquet)
 
 # ===============================
 # Función de tipado correcto
