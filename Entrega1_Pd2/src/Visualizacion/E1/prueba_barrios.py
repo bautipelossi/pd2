@@ -4,7 +4,7 @@ from pathlib import Path
 
 # Rutas
 BASE_DIR = Path(__file__).resolve()
-PROJECT_ROOT = BASE_DIR.parents[2]
+PROJECT_ROOT = BASE_DIR.parents[3]
 
 DATA_DIR = PROJECT_ROOT / "datos" / "limpios"
 

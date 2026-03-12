@@ -7,7 +7,7 @@ import json
 
 
 BASE_DIR = Path(__file__).resolve()
-PROJECT_ROOT = BASE_DIR.parents[2]
+PROJECT_ROOT = BASE_DIR.parents[3]
 
 RESUMEN_HORA_PATH = PROJECT_ROOT / "datos" / "limpios" / "resumen_zona_hora.parquet"
 ZONES_PATH = PROJECT_ROOT / "datos" / "limpios" / "taxi_zones.shp"

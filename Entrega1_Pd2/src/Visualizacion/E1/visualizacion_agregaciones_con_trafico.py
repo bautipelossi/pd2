@@ -10,7 +10,7 @@ import os
 BASE_DIR = Path(__file__).resolve().parent
 
 # PROJECT_ROOT sube dos niveles para llegar a la raíz (Entrega1_Pd2)
-PROJECT_ROOT = BASE_DIR.parents[1]
+PROJECT_ROOT = BASE_DIR.parents[2]
 
 # Archivos de Demanda (Taxis/Uber) apuntando a datos/limpios
 FHV_PATH = PROJECT_ROOT / "datos" / "limpios" / "fhv_2023_clean.parquet"

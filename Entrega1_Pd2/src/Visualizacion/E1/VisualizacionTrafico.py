@@ -11,7 +11,7 @@ from pathlib import Path
 DIRECTORIO_ACTUAL = Path(__file__).resolve().parent
 
 # PROJECT_ROOT sube dos niveles para llegar a la raíz (Entrega1_Pd2)
-PROJECT_ROOT = DIRECTORIO_ACTUAL.parents[1]
+PROJECT_ROOT = DIRECTORIO_ACTUAL.parents[2]
 
 # Define el archivo de entrada (Ahora es PARQUET, en la carpeta datos/limpios)
 ARCHIVO_ENTRADA = PROJECT_ROOT / "datos" / "limpios" / "dataset_trafico_vis_ready.parquet"

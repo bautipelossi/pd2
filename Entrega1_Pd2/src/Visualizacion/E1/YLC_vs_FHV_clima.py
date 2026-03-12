@@ -9,7 +9,7 @@ from pathlib import Path
 # ===============================
 
 BASE_DIR = Path(__file__).resolve()
-PROJECT_ROOT = BASE_DIR.parents[2]  # ajusta si tu estructura cambia
+PROJECT_ROOT = BASE_DIR.parents[3]  # ajusta si tu estructura cambia
 
 # Ruta de CARGA
 DATA_PATH = PROJECT_ROOT / "datos" / "limpios" / "hourly_aggregate.parquet"

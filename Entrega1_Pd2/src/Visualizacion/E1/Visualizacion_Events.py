@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parents[3]
 DATA_DIR = BASE_DIR / "datos"
 RUTA_LIMPIOS = DATA_DIR / "limpios"
 RUTA_GRAFOS = BASE_DIR / "graphs"
