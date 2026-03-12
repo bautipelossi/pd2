@@ -88,7 +88,7 @@ COLUMNS_API = [
 ]
 
 LIMIT = 50000          # tamaño de bloque
-DAYS_PER_MONTH = 7     # muestreo: primeros N días del mes
+DAYS_PER_MONTH = 14     # muestreo: primeros N días del mes
 SLEEP_TIME = 0.2       # respeto al API
 
 # ===============================
