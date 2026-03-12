@@ -7,24 +7,43 @@ from sklearn.preprocessing import OneHotEncoder
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 import numpy as np
+from dotenv import load_dotenv, find_dotenv
 
 
 def load_data_from_minio():
-    """Descarga el parquet agrupado desde MinIO directamente a Pandas"""
-    # Configuramos las credenciales de S3 para Pandas/s3fs
-    os.environ['AWS_ACCESS_KEY_ID'] = '2FUJr4T13QnYp5fbhAUP'
-    os.environ['AWS_SECRET_ACCESS_KEY'] = 'PdBhpHpYPjr8ZIParnrlFsIQApR8U5ao3VTT2dR7'
-    os.environ['AWS_S3_ENDPOINT'] = 'https://minio.fdi.ucm.es'
+    """Descarga el parquet agrupado desde MinIO directamente a Pandas usando .env"""
+    # 1. Buscamos y cargamos el archivo .env que está en la raíz del proyecto
+    load_dotenv(find_dotenv())
+
+    # 2. Extraemos las variables de entorno
+    minio_endpoint = os.getenv("MINIO_ENDPOINT")
+    access_key = os.getenv("MINIO_ACCESS_KEY")
+    secret_key = os.getenv("MINIO_SECRET_KEY")
+    bucket = os.getenv("MINIO_BUCKET")
+    group_path = os.getenv("MINIO_GROUP_PATH")
+
+    # Validamos que se hayan cargado correctamente
+    assert access_key, "Falta MINIO_ACCESS_KEY en el .env"
+    assert secret_key, "Falta MINIO_SECRET_KEY en el .env"
+    assert minio_endpoint, "Falta MINIO_ENDPOINT en el .env"
+    assert bucket, "Falta MINIO_BUCKET en el .env"
+    assert group_path, "Falta MINIO_GROUP_PATH en el .env"
 
     print("Conectando a MinIO y descargando datos...")
-    # s3:// es el protocolo que entiende Pandas para MinIO
-    # Apuntamos a vuestra carpeta taxomanos
-    df = pd.read_parquet('s3://pd2/taxomanos/resumen_zona_hora.parquet',
-                         storage_options={
-                             "key": os.environ['AWS_ACCESS_KEY_ID'],
-                             "secret": os.environ['AWS_SECRET_ACCESS_KEY'],
-                             "client_kwargs": {'endpoint_url': os.environ['AWS_S3_ENDPOINT']}
-                         })
+    
+    # 3. Construimos la ruta dinámica a tu archivo
+    ruta_s3 = f"s3://{bucket}/{group_path}/resumen_zona_hora.parquet"
+    print(f"Leyendo: {ruta_s3}")
+
+    # 4. Le pasamos las credenciales a Pandas a través de storage_options
+    df = pd.read_parquet(
+        ruta_s3,
+        storage_options={
+            "key": access_key,
+            "secret": secret_key,
+            "client_kwargs": {'endpoint_url': minio_endpoint}
+        }
+    )
     return df
 
 
@@ -32,15 +51,13 @@ def train_baseline(df):
     """Entrena un modelo base usando Scikit-Learn"""
     print("\nPreparando el pipeline de Scikit-Learn...")
 
-    # Supongamos que tu DataFrame tiene 'pulocationid', 'pickup_hour', 'day_of_week'
-    # y la variable a predecir 'demanda_viajes' (ajusta los nombres si son distintos)
-
     # Si no tienes 'day_of_week' pero tienes 'date_only', lo creamos:
     if 'day_of_week' not in df.columns and 'date_only' in df.columns:
         df['day_of_week'] = pd.to_datetime(df['date_only']).dt.dayofweek
 
+    # Ajusta 'demanda_viajes' si en tu parquet agrupado la columna de conteo se llama distinto
     X = df[['pulocationid', 'pickup_hour', 'day_of_week']]
-    y = df['demanda_viajes']  # Ajusta este nombre a como se llame en tu parquet
+    y = df['demanda_viajes']  
 
     # Hacemos split 80/20
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
