@@ -1,4 +1,4 @@
-# 🚕 NYC Traffic & Mobility Analytics by Taxómanos
+**# 🚕 NYC Traffic & Mobility Analytics by Taxómanos
 
 [![Python Version](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -56,7 +56,7 @@ El repositorio está organizado de forma modular, separando claramente los datos
 ```text
 📁 pd2/
 │
-├── 📁 Entrega1_Pd2/               # Directorio principal de la entrega
+├── 📁 /               # Directorio principal de la entrega
 │   │
 │   ├── 📁 datos/                  # Almacenamiento de datasets
 │   │   ├── 📁 crudos/             # Datos originales sin procesar (descargados de las fuentes)
@@ -145,8 +145,8 @@ Para replicar el análisis de este proyecto correctamente, debes seguir el flujo
 Primero, ejecuta los scripts de la carpeta `Extraccion` para obtener los datos crudos (clima, eventos, viajes de FHV/LTC, etc.):
 
 ```bash
-python Entrega1_Pd2/src/Extraccion/FHV.py
-python Entrega1_Pd2/src/Extraccion/LTC.py
+python src/Extraccion/FHV.py
+python src/Extraccion/LTC.py
 # (Ejecutar el resto de scripts según los datos que necesites actualizar)
 ```
 
@@ -155,9 +155,9 @@ python Entrega1_Pd2/src/Extraccion/LTC.py
 Una vez tengas los datos originales, ejecuta los scripts de la carpeta `Transformacion`. Estos scripts limpiarán los datos, unificarán formatos y generarán los archivos `.parquet` optimizados y listos para el análisis:
 
 ```bash
-python Entrega1_Pd2/src/Transformacion/Cleaning_FHV.py
-python Entrega1_Pd2/src/Transformacion/Cleaning_LTC.py
-python Entrega1_Pd2/src/Transformacion/PreprocesamientoVolumenTrafico.py
+python /src/Transformacion/Cleaning_FHV.py
+python /src/Transformacion/Cleaning_LTC.py
+python /src/Transformacion/PreprocesamientoVolumenTrafico.py
 # (Continúa con los demás scripts de limpieza correspondientes)
 ```
 
@@ -167,13 +167,13 @@ Con los datos procesados, finalmente puedes ejecutar los scripts de la carpeta `
 
 * Para el análisis general de demanda cruzada con el clima:
   ```bash
-  python Entrega1_Pd2/src/Visualizacion/LTC_vs_FHV_clima.py
+  python /src/Visualizacion/LTC_vs_FHV_clima.py
   ```
   (Los resultados de visualización general se exportarán a la subcarpeta Mapa_Interactivo_FHV_TLC/)
 
 * Para la comparativa cruzada de demanda vs. tráfico vehicular:
   ```bash
-  python Entrega1_Pd2/src/Visualizacion/visualizacion_agregaciones_con_trafico.py
+  python /src/Visualizacion/visualizacion_agregaciones_con_trafico.py
   ```
   (Los resultados y gráficos .html interactivos se guardarán automáticamente en la subcarpeta Reporte_Trafico_NYC/)
 
