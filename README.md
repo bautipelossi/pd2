@@ -1,4 +1,4 @@
-**# 🚕 NYC Traffic & Mobility Analytics by Taxómanos
+# 🚕 NYC Traffic & Mobility Analytics by Taxómanos
 
 [![Python Version](https://img.shields.io/badge/python-3.13%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
