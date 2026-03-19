@@ -520,8 +520,8 @@ def guardar_outputs(df_final: DataFrame, mapa: folium.Map) -> None:
         else:
             output_parquet_abs.unlink()
 
-    # FIX: Guardamos usando Pandas para evitar el error de "NativeIO" en Windows
-    # Al ser un dataset ya agrupado (solo 265 filas), es 100% seguro y eficiente.
+    # Guardamos usando Pandas para evitar el error de "NativeIO" en Windows
+  
     pdf_final = df_final.toPandas()
     tmp_parquet = output_parquet_abs.with_suffix(".tmp.parquet")
     if tmp_parquet.exists():
