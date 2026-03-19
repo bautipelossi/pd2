@@ -2,6 +2,7 @@ import io
 import logging
 import os
 import shutil
+import sys
 import zipfile
 from pathlib import Path
 from typing import Dict, Optional, Tuple
@@ -9,7 +10,9 @@ from typing import Dict, Optional, Tuple
 import branca.colormap as cm
 import folium
 import geopandas as gpd
+import pandas as pd
 import requests
+from branca.element import Element
 from dotenv import load_dotenv
 from folium import plugins
 
@@ -19,12 +22,18 @@ from pyspark.ml.functions import vector_to_array
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
+from pyspark.sql.window import Window
+from pyspark.sql.window import Window
 
 
 # -----------------------------------------------------------------------------
 # Configuración inicial (carga entorno). Incluye fallback por si falla conexión
 # -----------------------------------------------------------------------------
 load_dotenv()
+
+# Evita que Spark intente usar el alias "python" de Windows Store.
+os.environ["PYSPARK_PYTHON"] = sys.executable
+os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
 MINIO_CONFIG: Dict[str, str] = {
     "endpoint": os.getenv("MINIO_ENDPOINT", "https://minio.fdi.ucm.es"),
@@ -42,8 +51,17 @@ S3_PATHS = {
 LOCAL_FALLBACKS = {
     "taxi": "datos/limpios/nyc_taxi_clean.parquet",
     "fhv": "datos/limpios/fhv_2023_clean.parquet",
-    "restaurants": "datos/limpios/restaurantes_nyc_clean.csv",
+    "restaurants": "datos/crudos/restaurantes_nyc_clean.csv",
 }
+
+RESTAURANTS_LOCAL_CANDIDATES = [
+    "datos/crudos/restaurantes_nyc_clean.csv",
+]
+
+RENTALS_LOCAL_CANDIDATES = [
+    "datos/crudos/NY Realstate Pricing.csv",
+    "datos/crudos/NY_Realstate_Pricing.csv",
+]
 
 TAXI_ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip"
 
@@ -74,6 +92,9 @@ def crear_spark_session() -> SparkSession:
         .master("local[*]")
         .config("spark.driver.memory", "4g")
         .config("spark.executor.memory", "4g")
+        .config("spark.pyspark.driver.python", sys.executable)
+        .config("spark.pyspark.python", sys.executable)
+        .config("spark.executorEnv.PYSPARK_PYTHON", sys.executable)
         .config("spark.jars.packages", ",".join(packages))
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_CONFIG["endpoint"])
         .config("spark.hadoop.fs.s3a.access.key", MINIO_CONFIG["access_key"])
@@ -117,6 +138,14 @@ def resolve_project_path(path_str: str) -> Path:
     if p.is_absolute():
         return p
     return (PROJECT_ROOT / p).resolve()
+
+
+def first_existing_path(candidates) -> Optional[Path]:
+    for c in candidates:
+        p = resolve_project_path(c)
+        if p.exists():
+            return p
+    return None
 
 
 def cargar_parquet_con_fallback(spark: SparkSession, key: str) -> DataFrame:
@@ -228,8 +257,13 @@ def combinar_metricas(taxi_agg: DataFrame, fhv_agg: DataFrame) -> DataFrame:
 
 
 def calcular_indice_poder_adquisitivo(df: DataFrame) -> DataFrame:
+    has_alquiler = "alquiler_mediano" in df.columns
+    feature_cols = ["tip_amount_avg", "passenger_count_avg", "volumen_viajes"]
+    if has_alquiler:
+        feature_cols.append("alquiler_mediano")
+
     assembler = VectorAssembler(
-        inputCols=["tip_amount_avg", "passenger_count_avg", "volumen_viajes"],
+        inputCols=feature_cols,
         outputCol="features_raw",
     )
     df_vec = assembler.transform(df)
@@ -239,18 +273,35 @@ def calcular_indice_poder_adquisitivo(df: DataFrame) -> DataFrame:
     df_scaled = scaler_model.transform(df_vec)
 
     arr_col = vector_to_array("features_scaled")
-    df_scaled = (
-        df_scaled.withColumn("tip_norm", arr_col[0])
-        .withColumn("passenger_norm", arr_col[1])
-        .withColumn("volumen_norm", arr_col[2])
-    )
+    norm_col_map = {
+        "tip_amount_avg": "tip_norm",
+        "passenger_count_avg": "passenger_norm",
+        "volumen_viajes": "volumen_norm",
+        "alquiler_mediano": "alquiler_norm",
+    }
 
-    df_idx = df_scaled.withColumn(
-        "poder_adquisitivo",
-        F.col("tip_norm") * F.lit(0.5)
-        + F.col("passenger_norm") * F.lit(0.2)
-        + F.col("volumen_norm") * F.lit(0.3),
-    )
+    for i, raw_col in enumerate(feature_cols):
+        df_scaled = df_scaled.withColumn(norm_col_map[raw_col], arr_col[i])
+
+    if has_alquiler:
+        weights = {
+            "tip_norm": 0.35,
+            "passenger_norm": 0.15,
+            "volumen_norm": 0.25,
+            "alquiler_norm": 0.25,
+        }
+    else:
+        weights = {
+            "tip_norm": 0.50,
+            "passenger_norm": 0.20,
+            "volumen_norm": 0.30,
+        }
+
+    score_expr = F.lit(0.0)
+    for c, w in weights.items():
+        score_expr = score_expr + F.col(c) * F.lit(w)
+
+    df_idx = df_scaled.withColumn("poder_adquisitivo", score_expr)
 
     df_idx = df_idx.withColumn(
         "poder_adquisitivo_0_100", F.col("poder_adquisitivo") * F.lit(100.0)
@@ -259,9 +310,13 @@ def calcular_indice_poder_adquisitivo(df: DataFrame) -> DataFrame:
     return df_idx.drop("features_raw", "features_scaled")
 
 
-def aplicar_kmeans(df: DataFrame, k: int = 5) -> Tuple[DataFrame, KMeans]:
+def aplicar_kmeans(df: DataFrame, k: int = 6) -> Tuple[DataFrame, KMeans]:
+    feature_cols = ["tip_norm", "passenger_norm", "volumen_norm"]
+    if "alquiler_norm" in df.columns:
+        feature_cols.append("alquiler_norm")
+
     assembler = VectorAssembler(
-        inputCols=["tip_norm", "passenger_norm", "volumen_norm"],
+        inputCols=feature_cols,
         outputCol="kmeans_features",
     )
     df_vec = assembler.transform(df)
@@ -275,6 +330,21 @@ def aplicar_kmeans(df: DataFrame, k: int = 5) -> Tuple[DataFrame, KMeans]:
     )
     model = kmeans.fit(df_vec)
     pred = model.transform(df_vec).drop("kmeans_features")
+
+    # Reordenamos clusters por poder adquisitivo medio: 0 = mas ricos, k-1 = mas pobres.
+    cluster_order = (
+        pred.groupBy("cluster")
+        .agg(F.avg("poder_adquisitivo_0_100").alias("cluster_mean"))
+        .orderBy(F.desc("cluster_mean"))
+    )
+    w = Window.orderBy(F.desc("cluster_mean"))
+    cluster_map = cluster_order.withColumn("cluster_rank", F.row_number().over(w) - F.lit(1)).select(
+        F.col("cluster").alias("cluster_raw"),
+        F.col("cluster_rank").cast("int").alias("cluster"),
+    )
+
+    pred = pred.join(cluster_map, pred.cluster == cluster_map.cluster_raw, "left").drop("cluster_raw", pred.cluster)
+    pred = pred.withColumn("cluster_label", F.concat(F.lit("Cluster "), F.col("cluster").cast("string")))
     return pred, model
 
 
@@ -329,42 +399,95 @@ def cargar_zonas_gdf() -> gpd.GeoDataFrame:
     return gdf
 
 
-def cargar_restaurantes_filtrados(spark: SparkSession, max_points: int = 1500) -> Optional[gpd.GeoDataFrame]:
+def cargar_restaurantes_filtrados(
+    spark: SparkSession,
+    gdf_zonas: Optional[gpd.GeoDataFrame] = None,
+    max_points: int = 1500,
+) -> Optional[gpd.GeoDataFrame]:
     try:
         source = S3_PATHS["restaurants"]
-        local_rest = LOCAL_FALLBACKS.get("restaurants")
-        local_rest_abs = resolve_project_path(local_rest) if local_rest else None
+        local_rest_abs = first_existing_path(RESTAURANTS_LOCAL_CANDIDATES)
 
         if preferir_local():
-            if local_rest_abs and local_rest_abs.exists():
+            if local_rest_abs:
                 source = str(local_rest_abs)
             else:
                 logger.info("No hay CSV local de restaurantes; se omite capa de restaurantes.")
                 return None
 
-        df = spark.read.option("header", True).option("inferSchema", True).csv(source)
+        # Si es local, usamos pandas para evitar stages extra de Spark en Windows.
+        if str(source).lower().startswith("s3a://"):
+            df = spark.read.option("header", True).option("inferSchema", True).csv(source)
 
-        rating_col = find_first_existing_column(df, ["rating", "stars", "score"])
-        lat_col = find_first_existing_column(df, ["latitude", "lat", "y"])
-        lon_col = find_first_existing_column(df, ["longitude", "lon", "lng", "x"])
-
-        if not rating_col or not lat_col or not lon_col:
-            logger.warning("CSV restaurantes sin columnas esperadas de rating/lat/lon.")
-            return None
-
-        df_f = (
-            df.filter(F.col(rating_col) > 4)
-            .filter(F.col(lat_col).isNotNull() & F.col(lon_col).isNotNull())
-            .select(
-                F.col(rating_col).cast(DoubleType()).alias("rating"),
-                F.col(lat_col).cast(DoubleType()).alias("lat"),
-                F.col(lon_col).cast(DoubleType()).alias("lon"),
-                *[F.col(c) for c in df.columns if c.lower() in ("name", "restaurant", "nombre")]
+            rating_col = find_first_existing_column(df, ["rating", "stars", "score"])
+            lat_col = find_first_existing_column(df, ["latitude", "lat", "y"])
+            lon_col = find_first_existing_column(df, ["longitude", "lon", "lng", "x"])
+            price_col = find_first_existing_column(
+                df,
+                ["price_category", "price category", "price", "price_level", "price level"],
             )
-            .limit(max_points)
-        )
 
-        pdf = df_f.toPandas()
+            if not rating_col or not lat_col or not lon_col:
+                logger.warning("CSV restaurantes sin columnas esperadas de rating/lat/lon.")
+                return None
+
+            extra_cols = [c for c in df.columns if c.lower() in ("name", "restaurant", "nombre")]
+            if price_col:
+                extra_cols.append(price_col)
+
+            df_f = (
+                df.filter(F.col(rating_col) >= 3)
+                .filter(F.col(lat_col).isNotNull() & F.col(lon_col).isNotNull())
+                .select(
+                    F.col(rating_col).cast(DoubleType()).alias("rating"),
+                    F.col(lat_col).cast(DoubleType()).alias("lat"),
+                    F.col(lon_col).cast(DoubleType()).alias("lon"),
+                    *[F.col(c) for c in extra_cols],
+                )
+                .limit(max_points)
+            )
+
+            pdf = df_f.toPandas()
+        else:
+            pdf = pd.read_csv(source)
+
+            cols_lower = {c.lower(): c for c in pdf.columns}
+            rating_col = cols_lower.get("rating") or cols_lower.get("stars") or cols_lower.get("score")
+            lat_col = cols_lower.get("latitude") or cols_lower.get("lat") or cols_lower.get("y")
+            lon_col = cols_lower.get("longitude") or cols_lower.get("lon") or cols_lower.get("lng") or cols_lower.get("x")
+            price_col = (
+                cols_lower.get("price_category")
+                or cols_lower.get("price category")
+                or cols_lower.get("price_level")
+                or cols_lower.get("price level")
+                or cols_lower.get("price")
+            )
+
+            if not rating_col or not lat_col or not lon_col:
+                logger.warning("CSV restaurantes local sin columnas esperadas de rating/lat/lon.")
+                return None
+
+            keep = [rating_col, lat_col, lon_col]
+            for n in ["name", "restaurant", "nombre"]:
+                if n in cols_lower:
+                    keep.append(cols_lower[n])
+                    break
+            if price_col:
+                keep.append(price_col)
+
+            pdf = pdf[keep].copy()
+            pdf = pdf.dropna(subset=[rating_col, lat_col, lon_col])
+            pdf[rating_col] = pd.to_numeric(pdf[rating_col], errors="coerce")
+            pdf[lat_col] = pd.to_numeric(pdf[lat_col], errors="coerce")
+            pdf[lon_col] = pd.to_numeric(pdf[lon_col], errors="coerce")
+            pdf = pdf.dropna(subset=[rating_col, lat_col, lon_col])
+            pdf = pdf[pdf[rating_col] >= 3]
+            pdf = pdf.head(max_points)
+
+            rename_map = {rating_col: "rating", lat_col: "lat", lon_col: "lon"}
+            if price_col:
+                rename_map[price_col] = "price_category"
+            pdf = pdf.rename(columns=rename_map)
         if pdf.empty:
             return None
 
@@ -373,10 +496,90 @@ def cargar_restaurantes_filtrados(spark: SparkSession, max_points: int = 1500) -
             geometry=gpd.points_from_xy(pdf["lon"], pdf["lat"]),
             crs="EPSG:4326",
         )
+
+        if gdf_zonas is not None and not gdf_zonas.empty:
+            minx, miny, maxx, maxy = gdf_zonas.total_bounds
+            gdf = gdf[
+                (gdf["lon"] >= minx)
+                & (gdf["lon"] <= maxx)
+                & (gdf["lat"] >= miny)
+                & (gdf["lat"] <= maxy)
+            ].copy()
+            zones_mask = gdf_zonas[["LocationID", "geometry"]].copy()
+            gdf = gpd.sjoin(gdf, zones_mask, how="inner", predicate="within").drop(columns=["index_right"])
+
         return gdf
     except Exception as e:
         logger.warning("No se pudo cargar restaurantes: %s", str(e).splitlines()[0])
         return None
+
+
+def cargar_alquiler_por_zona_spark(spark: SparkSession, gdf_zonas: gpd.GeoDataFrame) -> Optional[DataFrame]:
+    try:
+        rental_path = first_existing_path(RENTALS_LOCAL_CANDIDATES)
+        if rental_path is None:
+            logger.info("No se encontro dataset local de alquileres; se continua sin esta capa.")
+            return None
+
+        pdf = pd.read_csv(rental_path)
+
+        col_map = {c.lower(): c for c in pdf.columns}
+        lat_col = col_map.get("latitude") or col_map.get("lat")
+        lon_col = col_map.get("longitude") or col_map.get("lon")
+        price_col = col_map.get("price")
+
+        if not lat_col or not lon_col or not price_col:
+            logger.warning("CSV de alquileres sin columnas esperadas latitude/longitude/price.")
+            return None
+
+        pdf = pdf[[lat_col, lon_col, price_col]].copy()
+        pdf = pdf.dropna()
+        pdf[price_col] = pd.to_numeric(pdf[price_col], errors="coerce")
+        pdf = pdf.dropna()
+        pdf = pdf[pdf[price_col] > 0]
+
+        if pdf.empty:
+            logger.info("Dataset de alquileres sin filas utiles tras limpieza.")
+            return None
+
+        gdf_rent = gpd.GeoDataFrame(
+            pdf.rename(columns={price_col: "price", lat_col: "lat", lon_col: "lon"}),
+            geometry=gpd.points_from_xy(pdf[lon_col], pdf[lat_col]),
+            crs="EPSG:4326",
+        )
+
+        zonas = gdf_zonas[["LocationID", "geometry"]].copy()
+        joined = gpd.sjoin(gdf_rent, zonas, how="inner", predicate="within")
+        if joined.empty:
+            logger.info("No hubo matches espaciales entre alquileres y taxi zones.")
+            return None
+
+        rent_agg = (
+            joined.groupby("LocationID", as_index=False)
+            .agg(
+                alquiler_medio=("price", "mean"),
+                alquiler_mediano=("price", "median"),
+                alquiler_count=("price", "size"),
+            )
+        )
+
+        return spark.createDataFrame(rent_agg)
+    except Exception as e:
+        logger.warning("No se pudo cargar/agregar alquileres: %s", str(e).splitlines()[0])
+        return None
+
+
+def incorporar_alquiler_metricas(metricas: DataFrame, alquiler_df: Optional[DataFrame]) -> DataFrame:
+    if alquiler_df is None:
+        return metricas
+
+    return metricas.join(alquiler_df, on="LocationID", how="left").fillna(
+        {
+            "alquiler_medio": 0.0,
+            "alquiler_mediano": 0.0,
+            "alquiler_count": 0,
+        }
+    )
 
 
 def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> folium.Map:
@@ -387,10 +590,10 @@ def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> foliu
     max_val = float(gdf_merged["poder_adquisitivo_0_100"].max())
 
     colormap = cm.LinearColormap(
-        colors=["#f7fbff", "#6baed6", "#2171b5", "#08306b"],
+        colors=["#f7fcf5", "#a1d99b", "#31a354", "#006d2c"],
         vmin=min_val,
         vmax=max_val,
-        caption="Indice de poder adquisitivo (0-100)",
+        caption="Mapa de intensidad",
     )
 
     def style_power(feature):
@@ -407,10 +610,6 @@ def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> foliu
         "zone",
         "borough",
         "LocationID",
-        "tip_amount_avg",
-        "passenger_count_avg",
-        "taxi_trip_count",
-        "fhv_trip_count",
         "volumen_viajes",
         "poder_adquisitivo_0_100",
     ]
@@ -419,17 +618,14 @@ def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> foliu
         "Zone",
         "Borough",
         "LocationID",
-        "Tip promedio",
-        "Pasajeros promedio",
-        "Viajes taxi",
-        "Viajes FHV",
-        "Volumen total",
+        "Cantidad de viajes",
         "Poder adquisitivo",
     ][: len(tooltip_fields)]
 
     layer_power = folium.GeoJson(
         gdf_merged,
         name="Poder adquisitivo",
+        overlay=True,
         style_function=style_power,
         highlight_function=lambda _: {"weight": 2, "fillOpacity": 0.95},
         tooltip=folium.GeoJsonTooltip(fields=tooltip_fields, aliases=aliases, sticky=True),
@@ -437,28 +633,39 @@ def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> foliu
     layer_power.add_to(m)
     colormap.add_to(m)
 
+    layer_cluster = None
     if usar_cluster and "cluster" in gdf_merged.columns:
-        cluster_colors = {
-            0: "#e41a1c", 1: "#377eb8", 2: "#4daf4a", 3: "#984ea3", 4: "#ff7f00", 5: "#a65628", 6: "#f781bf", 7: "#999999",
-        }
+        cluster_cmap = cm.LinearColormap(
+            colors=["#005a32", "#238b45", "#41ab5d", "#74c476", "#a1d99b", "#e5f5e0"],
+            vmin=0,
+            vmax=5,
+        )
 
         def style_cluster(feature):
             c = feature["properties"].get("cluster", -1)
-            color = cluster_colors.get(int(c), "#666666")
+            if c is None or int(c) < 0:
+                return {
+                    "fillColor": "#d9d9d9",
+                    "color": "#8c8c8c",
+                    "weight": 0.4,
+                    "fillOpacity": 0.35,
+                }
+            color = cluster_cmap(int(c))
             return {
                 "fillColor": color,
                 "color": "#222222",
                 "weight": 0.6,
-                "fillOpacity": 0.55,
+                "fillOpacity": 0.80,
             }
 
         layer_cluster = folium.GeoJson(
             gdf_merged,
             name="Cluster KMeans",
+            overlay=True,
             style_function=style_cluster,
             highlight_function=lambda _: {"weight": 2, "fillOpacity": 0.9},
             tooltip=folium.GeoJsonTooltip(
-                fields=[c for c in ["zone", "borough", "LocationID", "cluster"] if c in gdf_merged.columns],
+                fields=[c for c in ["zone", "borough", "LocationID", "cluster_label"] if c in gdf_merged.columns],
                 aliases=["Zone", "Borough", "LocationID", "Cluster"],
                 sticky=True,
             ),
@@ -468,7 +675,152 @@ def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> foliu
 
     plugins.MiniMap(toggle_display=True).add_to(m)
     plugins.Fullscreen(position="topleft").add_to(m)
-    folium.LayerControl(collapsed=False).add_to(m)
+
+    # Forzamos exclusividad entre capas tematicas sin tocar el basemap,
+    # y mostramos la barra solo cuando esta activa "Poder adquisitivo".
+    cluster_layer_js = layer_cluster.get_name() if layer_cluster else "null"
+    script = f"""
+    (function() {{
+        var mapName = "{m.get_name()}";
+        var powerName = "{layer_power.get_name()}";
+        var clusterName = {('"' + layer_cluster.get_name() + '"') if layer_cluster else 'null'};
+
+        function getLegendEl() {{
+            var legends = document.getElementsByClassName('legend');
+            if (!legends || legends.length === 0) return null;
+            return legends[0];
+        }}
+
+        function sameLayer(a, b) {{
+            return !!(a && b && a._leaflet_id === b._leaflet_id);
+        }}
+
+        function initWhenReady() {{
+            var mapObj = window[mapName];
+            var powerLayer = window[powerName];
+            var clusterLayer = clusterName ? window[clusterName] : null;
+
+            if (!mapObj || !powerLayer || (clusterName && !clusterLayer)) {{
+                return false;
+            }}
+
+            function isPowerCheckedInControl() {{
+                var labels = document.querySelectorAll('.leaflet-control-layers-overlays label');
+                for (var i = 0; i < labels.length; i++) {{
+                    var label = labels[i];
+                    var input = label.querySelector('input');
+                    var text = (label.textContent || '').trim();
+                    if (text.indexOf('Poder adquisitivo') !== -1) {{
+                        return !!(input && input.checked);
+                    }}
+                }}
+                return mapObj.hasLayer(powerLayer);
+            }}
+
+            function syncLegend() {{
+                var legend = getLegendEl();
+                if (!legend) return;
+                legend.style.display = isPowerCheckedInControl() ? 'block' : 'none';
+            }}
+
+            function setupThemeRadios() {{
+                var labels = document.querySelectorAll('.leaflet-control-layers-overlays label');
+                var powerInput = null;
+                var clusterInput = null;
+
+                for (var i = 0; i < labels.length; i++) {{
+                    var label = labels[i];
+                    var input = label.querySelector('input[type="checkbox"]');
+                    var text = (label.textContent || '').trim();
+                    if (!input) continue;
+
+                    if (text.indexOf('Poder adquisitivo') !== -1) {{
+                        input.type = 'radio';
+                        input.name = 'tema-mapa';
+                        powerInput = input;
+                    }} else if (text.indexOf('Cluster KMeans') !== -1) {{
+                        input.type = 'radio';
+                        input.name = 'tema-mapa';
+                        clusterInput = input;
+                    }}
+                }}
+
+                if (powerInput && clusterInput) {{
+                    if (!mapObj.hasLayer(powerLayer) && !mapObj.hasLayer(clusterLayer)) {{
+                        mapObj.addLayer(powerLayer);
+                    }}
+                }}
+            }}
+
+            mapObj.on('overlayadd', function(e) {{
+                if (clusterLayer && sameLayer(e.layer, powerLayer) && mapObj.hasLayer(clusterLayer)) {{
+                    mapObj.removeLayer(clusterLayer);
+                }}
+                if (clusterLayer && sameLayer(e.layer, clusterLayer) && mapObj.hasLayer(powerLayer)) {{
+                    mapObj.removeLayer(powerLayer);
+                }}
+                syncLegend();
+            }});
+
+            mapObj.on('overlayremove', function() {{
+                // Evita que el usuario deje sin capa tematica activa.
+                if (!mapObj.hasLayer(powerLayer) && (!clusterLayer || !mapObj.hasLayer(clusterLayer))) {{
+                    mapObj.addLayer(powerLayer);
+                }}
+                syncLegend();
+            }});
+
+            setupThemeRadios();
+            setTimeout(syncLegend, 0);
+            return true;
+        }}
+
+        var tries = 0;
+        var timer = setInterval(function() {{
+            if (initWhenReady() || tries > 40) {{
+                clearInterval(timer);
+            }}
+            tries += 1;
+        }}, 50);
+    }})();
+    """
+    m.get_root().script.add_child(Element(script))
+
+    title_html = """
+    <div style="
+        position: fixed;
+        top: 12px;
+        left: 60px;
+        z-index: 9999;
+        background: rgba(255, 255, 255, 0.90);
+        padding: 8px 12px;
+        border: 1px solid #cccccc;
+        border-radius: 6px;
+        font-size: 18px;
+        font-weight: 700;
+    ">
+        NYC GeoCore
+    </div>
+    """
+    m.get_root().html.add_child(Element(title_html))
+
+    blue_point_legend = """
+    <div style="
+        position: fixed;
+        bottom: 16px;
+        left: 12px;
+        z-index: 9999;
+        background: rgba(255, 255, 255, 0.90);
+        padding: 6px 8px;
+        border: 1px solid #cccccc;
+        border-radius: 5px;
+        font-size: 12px;
+    ">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#5dade2;margin-right:6px;"></span>
+        Restaurantes (puntos)
+    </div>
+    """
+    m.get_root().html.add_child(Element(blue_point_legend))
 
     return m
 
@@ -477,9 +829,32 @@ def agregar_capa_restaurantes(m: folium.Map, gdf_rest: Optional[gpd.GeoDataFrame
     if gdf_rest is None or gdf_rest.empty:
         return m
 
-    fg = folium.FeatureGroup(name="Restaurantes rating > 4", show=False)
+    fg = folium.FeatureGroup(name="Restaurantes", show=False)
     for _, row in gdf_rest.iterrows():
+        rating = row.get("rating", None)
+        price_cat = row.get("price_category", None)
+
+        # Paleta mas clara: color por rating, tamano por categoria de precio.
+        if rating is None:
+            marker_color = "#5dade2"
+        elif rating >= 4.7:
+            marker_color = "#1f78b4"
+        elif rating >= 4.4:
+            marker_color = "#5dade2"
+        else:
+            marker_color = "#a6cee3"
+
+        radius = 4.0
+        if price_cat is not None:
+            try:
+                p = float(price_cat)
+                radius = 3.0 + min(max(p, 1.0), 4.0)
+            except Exception:
+                pass
+
         popup_parts = [f"Rating: {row.get('rating', 'N/A')}"]
+        if price_cat is not None:
+            popup_parts.append(f"Categoria precio: {price_cat}")
         if "name" in row and row["name"] is not None:
             popup_parts.insert(0, f"Nombre: {row['name']}")
         elif "restaurant" in row and row["restaurant"] is not None:
@@ -489,11 +864,12 @@ def agregar_capa_restaurantes(m: folium.Map, gdf_rest: Optional[gpd.GeoDataFrame
 
         folium.CircleMarker(
             location=[row["lat"], row["lon"]],
-            radius=3,
-            color="#2ca25f",
+            radius=radius,
+            color=marker_color,
             fill=True,
-            fillColor="#2ca25f",
-            fillOpacity=0.65,
+            fillColor=marker_color,
+            fillOpacity=0.92,
+            weight=1.0,
             popup="<br>".join(popup_parts),
         ).add_to(fg)
 
@@ -546,38 +922,51 @@ def main() -> None:
 
         taxi_raw = cargar_parquet_con_fallback(spark, "taxi")
         fhv_raw = cargar_parquet_con_fallback(spark, "fhv")
+        gdf_zonas = cargar_zonas_gdf()
 
         taxi_agg = preparar_taxi(taxi_raw)
         fhv_agg = preparar_fhv(fhv_raw)
         metricas = combinar_metricas(taxi_agg, fhv_agg)
+
+        alquiler_agg = cargar_alquiler_por_zona_spark(spark, gdf_zonas)
+        metricas = incorporar_alquiler_metricas(metricas, alquiler_agg)
+
         metricas = calcular_indice_poder_adquisitivo(metricas)
 
         # Bonus clustering
-        metricas, model = aplicar_kmeans(metricas, k=5)
+        metricas, model = aplicar_kmeans(metricas, k=6)
         logger.info("KMeans entrenado. K=%s", model.getK())
 
         # Solo al final pasamos a pandas/geopandas para mapa
         pdf = metricas.toPandas()
         gdf_metricas = gpd.GeoDataFrame(pdf)
 
-        gdf_zonas = cargar_zonas_gdf()
         gdf_merged = gdf_zonas.merge(gdf_metricas, on="LocationID", how="left")
 
         # Fill para zonas sin viajes
         fill_cols = [
             "tip_amount_avg", "passenger_count_avg", "taxi_trip_count", "fhv_trip_count", 
-            "volumen_viajes", "tip_norm", "passenger_norm", "volumen_norm", 
-            "poder_adquisitivo", "poder_adquisitivo_0_100", "cluster"
+            "volumen_viajes", "alquiler_medio", "alquiler_mediano", "alquiler_count",
+            "tip_norm", "passenger_norm", "volumen_norm", "alquiler_norm",
+            "poder_adquisitivo", "poder_adquisitivo_0_100"
         ]
         for c in fill_cols:
             if c in gdf_merged.columns:
                 gdf_merged[c] = gdf_merged[c].fillna(0)
 
+        if "cluster" in gdf_merged.columns:
+            gdf_merged["cluster"] = gdf_merged["cluster"].fillna(-1)
+        if "cluster_label" in gdf_merged.columns:
+            gdf_merged["cluster_label"] = gdf_merged["cluster_label"].fillna("Sin datos")
+
         m = crear_mapa(gdf_merged, usar_cluster=True)
 
         # Capa extra opcional restaurantes
-        gdf_rest = cargar_restaurantes_filtrados(spark)
+        gdf_rest = cargar_restaurantes_filtrados(spark, gdf_zonas=gdf_zonas)
         m = agregar_capa_restaurantes(m, gdf_rest)
+
+        # LayerControl al final para incluir tambien restaurantes.
+        folium.LayerControl(collapsed=False).add_to(m)
 
         # Guardar parquet final y mapa HTML
         guardar_outputs(metricas, m)
