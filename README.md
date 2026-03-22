@@ -46,9 +46,9 @@ Los datos utilizados en este proyecto provienen de fuentes públicas y han sido 
 
 * **Datos meteorológicos en NYC:** Para incorporar condiciones meteorológicas, se utilizó la API de Open-Meteo, un servicio gratuito que proporciona datos históricos. Se descargaron variables de temperatura, precipitaciones y niveles de nieve en cada hora para la ciudad de Nueva York. Estos datos permiten controlar el efecto del clima sobre el volumen de tráfico.
 
-* **Restaurantes en NYC**: Se incorporó un dataset de restaurantes de Nueva York basado en información de Google Maps, obtenido desde Kaggle. Incluye nombre, rating, cantidad de reseñas, categoría de precio, dirección, coordenadas y código postal. Se utiliza como capa socioeconómica complementaria para analizar distribución de oferta gastronómica y su relación con zonas de demanda.
+* **Restaurantes en NYC**: Dataset de restaurantes de Nueva York basado en información de Google Maps, obtenido desde Kaggle. Incluye nombre, rating, cantidad de reseñas, categoría de precio, dirección, coordenadas y código postal. Se utiliza como capa socioeconómica complementaria para analizar distribución de oferta gastronómica y su relación con zonas de demanda.
 
-* **Precios de Alquiler en NYC**: Se incorporó un dataset ligero de propiedades en alquiler de Nueva York, obtenido desde Kaggle. Incluye barrio, latitud, longitud, tipo de habitación, precio y variables de ocupación/reseñas. Este dataset se agrega espacialmente por Taxi Zone para construir indicadores de alquiler medio y mediano como proxy socioeconómico adicional.
+* **Precios de Alquiler en NYC**: Dataset ligero de propiedades en alquiler de Nueva York, obtenido desde Kaggle. Incluye barrio, latitud, longitud, tipo de habitación, precio y variables de ocupación/reseñas. Este dataset se agrega espacialmente por Taxi Zone para construir indicadores de alquiler medio y mediano como proxy socioeconómico adicional.
 
 ---
 
