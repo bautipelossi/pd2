@@ -130,8 +130,8 @@ def crear_spark_session() -> SparkSession:
     # Reducir verbosidad de logs
     spark.sparkContext.setLogLevel("WARN")
     
-    print(f"✓ Spark Session creada: {spark.version}")
-    print(f"✓ Endpoint MinIO: {MINIO_CONFIG['endpoint']}")
+    print(f" Spark Session creada: {spark.version}")
+    print(f" Endpoint MinIO: {MINIO_CONFIG['endpoint']}")
     
     return spark
 
@@ -150,19 +150,19 @@ def cargar_dataset(spark: SparkSession, nombre_clave: str):
     try:
         print(f"Intentando cargar desde MinIO: {S3_PATHS[nombre_clave]}...")
         df = spark.read.parquet(S3_PATHS[nombre_clave])
-        print(f"✓ {nombre_clave.capitalize()} cargado exitosamente desde MinIO.")
+        print(f" {nombre_clave.capitalize()} cargado exitosamente desde MinIO.")
         return df
     except Exception as e:
-        print(f"⚠ Fallo en MinIO: {str(e).splitlines()[0]}") # Solo mostramos la primera línea del error
+        print(f" Fallo en MinIO: {str(e).splitlines()[0]}") # Solo mostramos la primera línea del error
         
     # 2. Intento con Local (Backup)
     try:
         print(f"Recurriendo al backup local: {LOCAL_PATHS[nombre_clave]}...")
         df = spark.read.parquet(LOCAL_PATHS[nombre_clave])
-        print(f"✓ {nombre_clave.capitalize()} cargado desde disco local.")
+        print(f" {nombre_clave.capitalize()} cargado desde disco local.")
         return df
     except Exception as e:
-        print(f"❌ Error crítico: No se encontró el dataset en MinIO ni en Local.")
+        print(f" Error crítico: No se encontró el dataset en MinIO ni en Local.")
         raise e
 
 def cargar_datos_taxi(spark: SparkSession):
@@ -180,7 +180,7 @@ def cargar_datos_taxi(spark: SparkSession):
     df_taxi = df_taxi.select(columnas_existentes)
     df_taxi = df_taxi.withColumn("tipo_servicio", F.lit("taxi"))
     
-    print(f"✓ Datos de taxi normalizados y cargados.")
+    print(f" Datos de taxi normalizados y cargados.")
     return df_taxi
 
 def cargar_datos_fhv(spark: SparkSession):
@@ -228,7 +228,7 @@ def unificar_datos(df_taxi, df_fhv):
     count_taxi = df_unificado.filter(F.col("tipo_servicio") == "taxi").count()
     count_fhv = df_unificado.filter(F.col("tipo_servicio") == "fhv").count()
     
-    print(f"✓ Total registros unificados: {count_total:,}")
+    print(f" Total registros unificados: {count_total:,}")
     print(f"  - Taxis: {count_taxi:,}")
     print(f"  - FHV: {count_fhv:,}")
     
@@ -267,11 +267,11 @@ def calcular_metricas_por_zona(df_unificado):
         "tarifa_media": 0.0
     })
     
-    print("\n📊 Preview de métricas por zona:")
+    print("\n Preview de métricas por zona:")
     df_metricas.orderBy(F.desc("volumen_viajes")).show(10)
     
     zonas = df_metricas.count()
-    print(f"✓ Métricas calculadas para {zonas} zonas")
+    print(f" Métricas calculadas para {zonas} zonas")
     
     return df_metricas
 
@@ -301,7 +301,7 @@ def calcular_poder_adquisitivo(df_metricas):
         F.stddev("volumen_viajes").alias("std_volumen")
     ).collect()[0]
     
-    print(f"\n📈 Estadísticas para normalización:")
+    print(f"\n Estadísticas para normalización:")
     print(f"   Propina media:    μ={estadisticas['mean_propina']:.2f}, σ={estadisticas['std_propina']:.2f}")
     print(f"   Pasajeros medios: μ={estadisticas['mean_pasajeros']:.2f}, σ={estadisticas['std_pasajeros']:.2f}")
     print(f"   Volumen viajes:   μ={estadisticas['mean_volumen']:.0f}, σ={estadisticas['std_volumen']:.0f}")
@@ -342,8 +342,8 @@ def calcular_poder_adquisitivo(df_metricas):
          (min_max["max_pa"] - min_max["min_pa"])) * 100
     ).fillna({"poder_adquisitivo_normalizado": 50.0})
     
-    print(f"\n📊 Rango de poder adquisitivo: [{min_max['min_pa']:.2f}, {min_max['max_pa']:.2f}]")
-    print("✓ Índice de poder adquisitivo calculado y normalizado (0-100)")
+    print(f"\n Rango de poder adquisitivo: [{min_max['min_pa']:.2f}, {min_max['max_pa']:.2f}]")
+    print(" Índice de poder adquisitivo calculado y normalizado (0-100)")
     
     return df_poder
 

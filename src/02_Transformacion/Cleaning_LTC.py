@@ -110,7 +110,7 @@ def clean_taxi_data(df: pd.DataFrame) -> pd.DataFrame:
             - 'total_amount': Precio total cobrado en USD (numérico - float)
 
     Devuelve:
-        pd.DataFrame
+        df: pd.DataFrame
             DataFrame limpio y listo para utilizar
 
     """
