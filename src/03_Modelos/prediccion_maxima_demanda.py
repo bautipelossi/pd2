@@ -28,7 +28,7 @@ def create_spark_session():
         .config("spark.hadoop.fs.s3a.secret.key", secret_key) \
         .config("spark.hadoop.fs.s3a.path.style.access", "true") \
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
-        .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.2") \
+        .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262") \
         .getOrCreate()
     
     return spark
@@ -41,22 +41,21 @@ def predict_max_demand_zone(spark, model, target_day, target_hour):
     """
     print(f"\n--- Prediciendo demanda para el Día {target_day} a las {target_hour}:00 ---")
 
-
     zonas_ids = range(1, 264)
-    data_grid = [Row(pulocationid=float(z), day_of_week=int(target_day), pickup_hour=int(target_hour)) for z in zonas_ids]
+    
+    # --------> AQUÍ ESTÁ EL CAMBIO (int(z) en lugar de float(z)) <--------
+    data_grid = [Row(pulocationid=int(z), day_of_week=int(target_day), pickup_hour=int(target_hour)) for z in zonas_ids]
     
     df_pred_input = spark.createDataFrame(data_grid)
 
     predicciones = model.transform(df_pred_input)
     top_zona = predicciones.orderBy(col("prediction").desc()).first()
 
-
     if top_zona:
         print(f"LA ZONA RECOMENDADA ES: {int(top_zona['pulocationid'])}")
         print(f"Viajes esperados (predicción): {round(top_zona['prediction'], 2)}")
     else:
         print("No se pudo realizar la predicción.")
-
 
 
 def prepare_data(spark):
