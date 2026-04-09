@@ -13,7 +13,6 @@
 3. [Estructura del Proyecto](#estructura)
 4. [Instalación y Requisitos](#instalacion)
 5. [Uso y Ejecución](#uso)
-6. [Próximos Pasos (Future Work)](#futuro)
 7. [Autores (Grupo Taxómanos)](#autores)
 
 ---
@@ -175,16 +174,6 @@ Con los datos procesados, finalmente puedes ejecutar los scripts de la carpeta `
   python /src/Visualizacion/visualizacion_agregaciones_con_trafico.py
   ```
   (Los resultados y gráficos .html interactivos se guardarán automáticamente en la subcarpeta Reporte_Trafico_NYC/)
-
----
-
-<a id="futuro"></a>
-##  Próximos Pasos (Future Work)
-
-Para ampliar el alcance y la profundidad de este análisis, se proponen las siguientes mejoras futuras:
-
-* Entrenar un modelo predictivo (Machine Learning) basado en series temporales para estimar zonas de alta demanda de transporte en función del día de la semana y eventos programados.
-* Desplegar un dashboard interactivo utilizando Streamlit o Dash para permitir la exploración dinámica de los datos por parte de usuarios no técnicos.
 
 ---
 
