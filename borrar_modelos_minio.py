@@ -2,7 +2,7 @@ import os
 import boto3
 from dotenv import load_dotenv, find_dotenv
 
-def borrar_carpeta_modelos_boto3_paginado():
+def exterminio_total_minio():
     load_dotenv(find_dotenv())
     
     endpoint = os.getenv("MINIO_ENDPOINT")
@@ -11,7 +11,7 @@ def borrar_carpeta_modelos_boto3_paginado():
     bucket = os.getenv("MINIO_BUCKET")
     group_path = os.getenv("MINIO_GROUP_PATH")
 
-    print("Conectando a MinIO a través de boto3...")
+    print("Conectando a MinIO (Modo Administrador)...")
     
     s3_client = boto3.client(
         's3',
@@ -20,48 +20,54 @@ def borrar_carpeta_modelos_boto3_paginado():
         aws_secret_access_key=secret_key
     )
 
-    prefijo_borrar = f"{group_path}/modelos"
-    archivos_borrados = 0
-    continuar_borrando = True
-    token_paginacion = None # Para saber por qué página vamos
-
-    print(f"Buscando y destruyendo todo en: {prefijo_borrar}")
+    # Buscamos tanto la carpeta con barra como sin barra por si acaso
+    prefijo = f"{group_path}/modelos/"
+    
+    print(f"Buscando archivos ocultos y versiones antiguas en: {prefijo}")
+    
+    # Usamos un paginador especial para ver las versiones OCULTAS
+    paginator = s3_client.get_paginator('list_object_versions')
+    page_iterator = paginator.paginate(Bucket=bucket, Prefix=prefijo)
+    
+    archivos_destruidos = 0
 
     try:
-        while continuar_borrando:
-            # Pedimos la lista de archivos (con el token si estamos en la página 2, 3...)
-            if token_paginacion:
-                response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefijo_borrar, ContinuationToken=token_paginacion)
-            else:
-                response = s3_client.list_objects_v2(Bucket=bucket, Prefix=prefijo_borrar)
-            
-            if 'Contents' in response:
-                for obj in response['Contents']:
-                    archivo_key = obj['Key']
-                    # Borramos el archivo
-                    s3_client.delete_object(Bucket=bucket, Key=archivo_key)
-                    archivos_borrados += 1
-                    
-                    # Imprimimos 1 de cada 50 para no saturar la consola si hay miles
-                    if archivos_borrados % 50 == 0:
-                        print(f" - Llevamos {archivos_borrados} archivos borrados...")
-                
-                # ¿Hay más páginas?
-                if response.get('IsTruncated'): # IsTruncated = True significa que hay más de 1000
-                    token_paginacion = response.get('NextContinuationToken')
-                else:
-                    continuar_borrando = False # Ya no hay más
-            else:
-                continuar_borrando = False # La carpeta estaba vacía
+        for page in page_iterator:
+            # 1. Borrar las versiones reales de los archivos
+            if 'Versions' in page:
+                for version in page['Versions']:
+                    s3_client.delete_object(
+                        Bucket=bucket, 
+                        Key=version['Key'], 
+                        VersionId=version['VersionId'] # ¡Aquí está el truco!
+                    )
+                    archivos_destruidos += 1
+                    if archivos_destruidos % 50 == 0:
+                        print(f" - {archivos_destruidos} archivos reales destruidos...")
 
-        if archivos_borrados > 0:
-            print(f"\n¡Exterminio completado! Se han borrado un total de {archivos_borrados} archivos.")
-            print("MinIO está limpio. Puedes comprobarlo en la interfaz web (quizás tengas que refrescar la página F5).")
+            # 2. Borrar las "Mantas de invisibilidad" (Delete Markers)
+            if 'DeleteMarkers' in page:
+                for marker in page['DeleteMarkers']:
+                    s3_client.delete_object(
+                        Bucket=bucket, 
+                        Key=marker['Key'], 
+                        VersionId=marker['VersionId']
+                    )
+                    archivos_destruidos += 1
+                    if archivos_destruidos % 50 == 0:
+                        print(f" - {archivos_destruidos} marcas de borrado destruidas...")
+
+        # Por si quedó el "holograma" de la carpeta
+        s3_client.delete_object(Bucket=bucket, Key=prefijo)
+        s3_client.delete_object(Bucket=bucket, Key=f"{group_path}/modelos")
+
+        if archivos_destruidos > 0:
+            print(f"\n¡Exterminio absoluto completado! Se pulverizaron {archivos_destruidos} elementos ocultos.")
         else:
-            print(f"\nLa carpeta '{prefijo_borrar}' no existía o ya estaba totalmente vacía.")
+            print("\nNo se encontró nada. Si la carpeta sigue ahí, es un bug visual de la caché de tu navegador.")
             
     except Exception as e:
-        print(f"Error crítico en MinIO: {e}")
+        print(f"Error: {e}")
 
 if __name__ == "__main__":
-    borrar_carpeta_modelos_boto3_paginado()
+    exterminio_total_minio()
