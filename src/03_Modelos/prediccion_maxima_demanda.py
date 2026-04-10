@@ -1,5 +1,6 @@
 import os
 from dotenv import load_dotenv, find_dotenv
+from pathlib import Path  # Añadimos esta librería para poder construir la ruta local de forma dinámica
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, hour, dayofweek, count, date_trunc
 from pyspark.ml.feature import StringIndexer, VectorAssembler, OneHotEncoder
@@ -8,27 +9,26 @@ from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.sql import Row
 
-def create_spark_session():
-    """Crea la sesión de Spark configurada para leer desde MinIO usando variables de entorno"""
-    load_dotenv(find_dotenv()) # Carga las variables del archivo .env
-    
-    minio_endpoint = os.getenv("MINIO_ENDPOINT")
-    access_key = os.getenv("MINIO_ACCESS_KEY")
-    secret_key = os.getenv("MINIO_SECRET_KEY")
 
-    # Validaciones de seguridad para avisar si falta algo
-    assert minio_endpoint, "Falta MINIO_ENDPOINT en el archivo .env"
-    assert access_key, "Falta MINIO_ACCESS_KEY en el archivo .env"
-    assert secret_key, "Falta MINIO_SECRET_KEY en el archivo .env"
+def create_spark_session():
+    load_dotenv(find_dotenv())
+    
+    # Configuramos las rutas directamente en el sistema antes de arrancar Spark
+    os.environ['HADOOP_HOME'] = "C:/hadoop"
+    # Forzamos a que use C:/tmp/hadoop para los bloques de S3
+    os.environ['HADOOP_TMP_DIR'] = "C:/tmp/hadoop"
 
     spark = SparkSession.builder \
         .appName("Prediccion_Demanda_Taxi_Ex1a") \
-        .config("spark.hadoop.fs.s3a.endpoint", minio_endpoint) \
-        .config("spark.hadoop.fs.s3a.access.key", access_key) \
-        .config("spark.hadoop.fs.s3a.secret.key", secret_key) \
+        .config("spark.hadoop.fs.s3a.endpoint", os.getenv("MINIO_ENDPOINT")) \
+        .config("spark.hadoop.fs.s3a.access.key", os.getenv("MINIO_ACCESS_KEY")) \
+        .config("spark.hadoop.fs.s3a.secret.key", os.getenv("MINIO_SECRET_KEY")) \
         .config("spark.hadoop.fs.s3a.path.style.access", "true") \
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
         .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262") \
+        .config("spark.hadoop.fs.s3a.buffer.dir", "C:/tmp/hadoop") \
+        .config("spark.hadoop.fs.s3a.fast.upload", "true") \
+        .config("spark.hadoop.fs.s3a.fast.upload.buffer", "array") \
         .getOrCreate()
     
     return spark
@@ -59,22 +59,33 @@ def predict_max_demand_zone(spark, model, target_day, target_hour):
 
 
 def prepare_data(spark):
-    """Carga los datos agrupados dinámicamente desde MinIO"""
+    """Carga los datos agrupados dinámicamente desde MinIO o desde local como fallback"""
     load_dotenv(find_dotenv())
     minio_bucket = os.getenv("MINIO_BUCKET")
     minio_groupPath = os.getenv("MINIO_GROUP_PATH")
     
     assert minio_bucket, "Falta MINIO_BUCKET en el entorno/.env"
     assert minio_groupPath, "Falta MINIO_GROUP_PATH en el entorno/.env"
-
-
-
+    
     # Construimos la ruta dinámicamente con las variables de entorno
     ruta_parquet = f"s3a://{minio_bucket}/{minio_groupPath}/resumen_zona_hora.parquet"
-    print(f"Leyendo datos desde: {ruta_parquet}")
     
-    df_grouped = spark.read.parquet(ruta_parquet)
+    # Definimos la ruta local basándonos en la estructura de nuestro repositorio
+    base_dir = Path(__file__).resolve()
+    project_root = base_dir.parents[2]
+    ruta_local = project_root / "Entrega1_Pd2" / "datos" / "limpios" / "resumen_zona_hora.parquet"
 
+    # Añadimos un bloque try-except para intentar cargar desde la nube y asegurar una alternativa local
+    try:
+        print(f"Intentando leer datos desde MinIO: {ruta_parquet}")
+        df_grouped = spark.read.parquet(ruta_parquet)
+        
+        # Forzamos una acción (count) para que Spark evalúe la lectura y salte al except si MinIO falla
+        df_grouped.count() 
+    except Exception as e:
+        print(f"Fallo de conexión con MinIO detectado: {str(e).splitlines()[0]}")
+        print(f"Hacemos fallback y leemos nuestro archivo local desde: {ruta_local}")
+        df_grouped = spark.read.parquet(str(ruta_local))
 
     if "day_of_week" not in df_grouped.columns and "date_only" in df_grouped.columns:
         df_grouped = df_grouped.withColumn("day_of_week", dayofweek("date_only"))
@@ -125,9 +136,16 @@ if __name__ == "__main__":
     minio_bucket = os.getenv("MINIO_BUCKET")
     minio_groupPath = os.getenv("MINIO_GROUP_PATH")
     
-    ruta_modelo = f"s3a://{minio_bucket}/{minio_groupPath}/modelos/rf_demanda_model"
-    print(f"Guardando modelo en: {ruta_modelo}")
-    model.write().overwrite().save(ruta_modelo)
-
+    ruta_modelo_s3 = f"s3a://{minio_bucket}/{minio_groupPath}/modelos/rf_demanda_model"
+    
+    # Añadimos un bloque try-except para guardar el modelo de forma local si MinIO falla en el último paso
+    try:
+        print(f"Guardando modelo en MinIO: {ruta_modelo_s3}")
+        model.write().overwrite().save(ruta_modelo_s3)
+    except Exception as e:
+        ruta_modelo_local = str(Path(__file__).resolve().parents[2] / "Entrega1_Pd2" / "datos" / "modelos" / "rf_demanda_model")
+        print(f"Error al guardar en MinIO: {str(e).splitlines()[0]}")
+        print(f"Hacemos fallback y guardamos el modelo localmente en: {ruta_modelo_local}")
+        model.write().overwrite().save(ruta_modelo_local)
 
     spark.stop()

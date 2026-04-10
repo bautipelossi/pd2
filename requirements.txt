@@ -6,6 +6,7 @@
 pandas
 numpy
 pyarrow
+openpyxl
 
 # 2. Extracción de Datos y APIs
 requests
@@ -25,9 +26,11 @@ seaborn
 plotly
 
 # 5. Procesamiento Distribuido (Clúster MinIO)
-pyspark
+pyspark==3.5.0
 findspark
 s3fs
+boto3
+botocore
 
 # 6. Machine Learning (Modelado y Comparación)
 scikit-learn
