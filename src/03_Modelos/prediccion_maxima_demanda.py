@@ -1,5 +1,6 @@
 import os
 import sys
+import pandas as pd
 from dotenv import load_dotenv, find_dotenv
 from pathlib import Path
 from pyspark.sql import SparkSession
@@ -59,6 +60,18 @@ def prepare_data(spark):
 
     return df_grouped.dropna()
 
+def get_zone_dict():
+    """Descarga el catálogo oficial de zonas de la TLC y crea un diccionario"""
+    url_oficial = "https://d37ci6vzurychx.cloudfront.net/misc/taxi+_zone_lookup.csv"
+    try:
+        print("Descargando catálogo oficial de zonas...")
+        df_zonas = pd.read_csv(url_oficial)
+        # Crea un diccionario {1: 'Newark Airport', 2: 'Jamaica Bay', ...}
+        return dict(zip(df_zonas['LocationID'], df_zonas['Zone']))
+    except Exception as e:
+        print(f"Aviso: No se pudo descargar el catálogo ({e}). Se usarán IDs genéricos.")
+        return {}
+
 def evaluate_model(model, dataset):
     """Calcula RMSE y MAE para un modelo dado sobre un dataset específico"""
     predictions = model.transform(dataset)
@@ -103,9 +116,10 @@ def train_and_compare(train_data, val_data):
         print("GANADOR: Gradient-Boosted Trees")
         return model_gbt
 
-def predict_max_demand_zone(spark, model, target_day, target_hour):
-    """Predice y muestra la zona con mayor demanda"""
+def predict_max_demand_zone(spark, model, target_day, target_hour, diccionario_zonas):
+    """Predice y muestra la zona con mayor demanda, traduciendo el ID a nombre real"""
     print(f"\n--- Prediciendo demanda para el Día {target_day} a las {target_hour}:00 ---")
+    
     zonas_ids = range(1, 264)
     data_grid = [Row(pulocationid=int(z), day_of_week=int(target_day), pickup_hour=int(target_hour)) for z in zonas_ids]
     
@@ -114,8 +128,14 @@ def predict_max_demand_zone(spark, model, target_day, target_hour):
     top_zona = predicciones.orderBy(col("prediction").desc()).first()
 
     if top_zona:
-        print(f"LA ZONA RECOMENDADA ES: {int(top_zona['pulocationid'])}")
-        print(f"Viajes esperados (predicción): {round(top_zona['prediction'], 2)}")
+        zona_id = int(top_zona['pulocationid'])
+        viajes = round(top_zona['prediction'], 2)
+        
+        # Usa el diccionario dinámico. Si por algún motivo el ID no existe, pone "Zona Desconocida"
+        nombre_real = diccionario_zonas.get(zona_id, "Zona Desconocida")
+        
+        print(f"LA ZONA RECOMENDADA ES: {nombre_real} (ID: {zona_id})")
+        print(f"Viajes esperados (predicción): {viajes}")
 
 if __name__ == "__main__":
     spark = create_spark_session()
@@ -129,30 +149,31 @@ if __name__ == "__main__":
     # 1. Entrenar y elegir el mejor modelo usando Validation
     best_model = train_and_compare(train_df, val_df)
 
-    # 2. Examen Final: Evaluar el ganador en Test (Datos completamente nuevos)
+    # 2. Examen Final: Evaluar el ganador en Test
     print("\n" + "*"*40)
     print(" EXAMEN FINAL EN SET DE TEST")
     rmse_test, mae_test = evaluate_model(best_model, test_df)
     print(f" Rendimiento real -> RMSE: {rmse_test:.2f} | MAE: {mae_test:.2f}")
     print("*"*40)
 
-    # 3. Predicción práctica
-    predict_max_demand_zone(spark, best_model, target_day=2, target_hour=8)
+    # Cargamos el diccionario de zonas oficial
+    diccionario_oficial = get_zone_dict()
+
+    # 3. Predicción práctica (pasándole el diccionario)
+    predict_max_demand_zone(spark, best_model, target_day=2, target_hour=8, diccionario_zonas=diccionario_oficial)
 
     print("\n" + "-"*50)
     print("PROCESO DE CÁLCULO FINALIZADO EXITOSAMENTE")
     print("-" * 50)
 
-    # 4. Guardar modelo
+    # 4. Guardar modelo ÚNICAMENTE en local
+    ruta_modelo_local = str(Path(__file__).resolve().parents[2] / "Entrega1_Pd2" / "datos" / "modelos" / "mejor_modelo_demanda")
+    print(f"Guardando mejor modelo localmente en: {ruta_modelo_local}")
+    
     try:
-        minio_bucket = os.getenv("MINIO_BUCKET")
-        minio_groupPath = os.getenv("MINIO_GROUP_PATH")
-        ruta_modelo_s3 = f"s3a://{minio_bucket}/{minio_groupPath}/modelos/mejor_modelo_demanda"
-        print(f"Guardando mejor modelo en la nube...")
-        best_model.write().overwrite().save(ruta_modelo_s3)
-    except Exception as e:
-        ruta_modelo_local = str(Path(__file__).resolve().parents[2] / "Entrega1_Pd2" / "datos" / "modelos" / "mejor_modelo_demanda")
-        print(f"Nota: Fallo en nube, guardando localmente en: {ruta_modelo_local}")
         best_model.write().overwrite().save(ruta_modelo_local)
+        print("Modelo guardado correctamente.")
+    except Exception as e:
+        print(f"Error al guardar el modelo localmente: {e}")
 
     spark.stop()
