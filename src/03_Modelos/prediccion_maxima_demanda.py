@@ -68,7 +68,7 @@ def prepare_data(spark):
     assert minio_groupPath, "Falta MINIO_GROUP_PATH en el entorno/.env"
     
     # Construimos la ruta dinámicamente con las variables de entorno
-    ruta_parquet = f"s3a://{minio_bucket}/{minio_groupPath}/resumen_zona_hora.parquet"
+    ruta_parquet = f"s3a://{minio_bucket}/{minio_groupPath}/limpios/resumen_zona_hora.parquet"
     
     # Definimos la ruta local basándonos en la estructura de nuestro repositorio
     base_dir = Path(__file__).resolve()
