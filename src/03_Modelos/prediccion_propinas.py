@@ -175,7 +175,8 @@ def cargar_datos_taxi(spark: SparkSession):
                     "tip_amount",
                     "passenger_count",
                     "fare_amount",
-                    "total_amount"]
+                    "total_amount"  # cobro total: fare_amount + tip_amount
+                    ]
 
     # Verificamos qué columnas existen realmente (en el log dice que tienes tip_amount, total_amount, etc.)
     columnas_existentes = [col for col in columnas_taxi if col in df_taxi.columns]
@@ -219,13 +220,15 @@ def creacion_variables(df_taxi):
 
     # Creación de variables auxiliares temporales
     df_auxt = df_taxi.withColumn(
-        "hour", F.hour("PULocationID")
+        "hour", F.hour("tpep_pickup_datetime")
     ).withColumn(
-        "day_of_week", F.dayofweek("PULocationID")
+        "day_of_week", F.dayofweek("tpep_pickup_datetime")
     ).withColumn(
         "is_weekend",
         when(col("day_of_week").isin([1, 7]), True).
         otherwise(False)
+    ).withColumn(
+        "month", F.month("tpep_pickup_datetime")
     )
 
     # Creación de variables auxiliares cuantitativas
@@ -240,5 +243,73 @@ def estudio_analítico(df_final):
     print(" Estudio analítico del df final ...")
     print("\n" + "=" * 60 )
 
-    df
+    # --- 1) Comprobamos las métricas de cada columna
+    numeric_cols = [
+                    "tip_amount", 
+                    "passenger_count", 
+                    "fare_amount",  
+                    "total_amount", 
+                    "tip_pct"
+                    ]
 
+    print("\n 1) Estadísticas descriptivas de las columnas numéricas")
+    df_final.select(numeric_cols)describe().show()
+
+    # --- 2) Análisis variable objetivo
+    print("\n 2) Análisis variable objetivo ")
+    df_tip_amount = df_final.select(
+        lit("tip_amount").alias("variable"),
+        mean("tip_amount").alias("media"),
+        stddev("tip_amount").alias("desv_tipica"),
+        min("tip_amount").alias("min"),
+        max("tip_amount").alias("max")
+    ).show()
+
+    df_tip_pct = df_final.select(
+        lit("tip_pct").alias("variable"),
+        mean("tip_pct").alias("media"),
+        stddev("tip_pct").alias("desv_tipica"),
+        min("tip_pct").alias("min"),
+        max("tip_pct").alias("max")
+    ).show()
+
+    # Unir verticalmente
+    df_tip_stats = df_tip_amount.union(df_tip_pct)
+    df_tip_stats.show()
+
+    # --- 3) Estudio de correlaciones entre variables
+    print("\n 3) Estudio de correlaciones entre variables numéricas y variable objetivo")
+    for c in numeric_cols:
+        if c != "tip_amount":
+            try:
+                corr_value = df_final.stats.corr("tip_amount", c)
+                print(f"Correlación entre tip_amount y {c}: {corr_value:.2f} \n")
+            except:
+                pass
+    
+    # --- 4) Agregaciones temporales para ver como se distribuyen las propinas
+    print("4) Agregaciones temporale para observar distribución temporal de las propinas")
+    
+    print("\n Por Hora")
+    df.groupBy("hour").aggregate(
+        mean("tip_amount").alias("avg_tip_amount"),
+        count("*").alias("num_trips")
+    ).orderBy("hour").show()
+
+    print("\n Por Día de la Semana")
+    df.groupBy("day_of_week").aggregate(
+        mean("tip_amount").alias("avg_tip_amount"),
+        count("*").alias("num_trips")
+    ).orderBy("day_of_week").show()
+
+    print("\n Por Mes")
+    df.groupBy("month").aggregate(
+        mean("tip_amount").alias("avg_tip_amount"),
+        count("*").alias("num_trips")
+    ).orderBy("month").show()
+
+    print("\n Comparación entre semana vs fin de semana")
+    df.groupBy("is_weekday").aggregate(
+        mean("tip_amount").alias("avg_tip_amount"),
+        count("*").alias("num_trips")
+    ).show()
