@@ -169,14 +169,22 @@ def cargar_datos_taxi(spark: SparkSession):
     if "pulocationid" in df_taxi.columns:
         df_taxi = df_taxi.withColumnRenamed("pulocationid", "PULocationID")
     
+    # Seleccionamos las columnas que nos servirán para el estudio A PRIORI
     columnas_taxi = ["PULocationID", 
                     "tpep_pickup_datetime", 
                     "tip_amount",
-                    "passenger_count", 
+                    "passenger_count",
+                    "fare_amount",
                     "total_amount"]
+
     # Verificamos qué columnas existen realmente (en el log dice que tienes tip_amount, total_amount, etc.)
     columnas_existentes = [col for col in columnas_taxi if col in df_taxi.columns]
     
+    # Eliminamos posibles valores nulos o inválidos
+    df = df.filter(F.col("tip_amount") >= 0)
+    df = df.filter(F.col("fare_amount") > 0)
+    df = df.filter(F.col("total_amount") > 0)
+
     df_taxi = df_taxi.select(columnas_existentes)
     df_taxi = df_taxi.withColumn("tipo_servicio", F.lit("taxi"))
     
@@ -222,7 +230,7 @@ def creacion_variables(df_taxi):
 
     # Creación de variables auxiliares cuantitativas
     df_final = df_auxt.withColumn(
-        "tip_pct", (col("tip_amount") / col("total_amount")) * 100
+        "tip_pct", (col("tip_amount") / col("fare_amount")) * 100
     )
 
     return df_final
