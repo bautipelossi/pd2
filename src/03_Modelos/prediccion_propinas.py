@@ -313,3 +313,106 @@ def estudio_analítico(df_final):
         mean("tip_amount").alias("avg_tip_amount"),
         count("*").alias("num_trips")
     ).show()
+
+    # --- 5) Comparación entre tarifa y comportamiento con la propina
+    print("5) Comparación entre tarifa vs comportamiento con la propina")
+
+    df.groupBy("passenger_count").aggregate(
+        mean("fare_amount").alias("avg_fare"),
+        mean("tip_pct").alias("avg_tip_pct")
+    ).orderBy("passenger_count").show()
+
+
+# ==============================================================================
+# PASO 6: BASELINE MODEL
+# ==============================================================================
+
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
+from pyspark.ml.regression import LinearRegression
+from pyspark.ml.evaluation import RegressionEvaluator
+
+def base_pipeline():
+
+    # Variables -a priori-
+    cols = [
+            "PULocationID", 
+            "passenger_count", 
+            "fare_amount", 
+            "hour",
+            "day_of_week",
+            "is_weekend",
+            "month"
+            ]
+    
+    assembler = VectorAssembler(
+        inputCols = numeric_cols,
+        outputCol = "features"
+    )
+
+    # Modelo Base
+    lr = LinearRegression(
+        featuresCol = "features",
+        labelCol = "tip_pct",
+        predictionCol = "prediction",
+        maxIter = 50,
+        regParam = 0.0,
+        elasticNetParam = 0.0
+    )
+
+    pipeline = Pipeline(stages = [assembler, lr])
+
+    return pipeline
+
+def data_split(df_final: DataFrame, train_ratio: float = 0.8):
+    """
+    Divide los datos en entrenamiento y test
+    """
+
+    train_df, test_df = df.randomSplit([train_ratio, 1-train_ratio], seed=42)
+
+    return train_df, test_df
+
+def train_model(pipeline: Pipeline, train_df: DataFrame):
+    """
+    Se entrena el modelo con el conjunto de entrenamiento
+    """
+
+    model = pipeline.fit(train_df)
+    return model
+
+def evaluate_model(model, test_df: DataFrame):
+    """
+    Evalúa el modelo usando varias métricas
+    """
+
+    predictions = model.transform(test_df)
+
+    evaluator_rmse = RegressionEvaluator(
+        labelCol = "tip_pct",
+        predictionCol = "prediction",
+        metricName = "rmse"
+    )
+
+    evaluator_mae = RegressionEvaluator(
+        labelCol = "tip_pct",
+        predictionCol = "prediction",
+        metricName = "mae"
+    )
+
+    evaluator_r2 = RegressionEvaluator(
+        labelCol = "tip_pct",
+        predictionCol = "prediction",
+        metricName = "r2"
+    )
+
+    rmse = evaluator_rmse.evaluate(predictions)
+    mae = evaluator_mae.evaluate(predictions)
+    r2 = evaluator_r2.evaluate(predictions)
+
+    print("Evaluacón del modelo base:")
+    print(f"RMSE: {rmse:.4f}")
+    print(f"MAE: {mae:.4f}")
+    print(f"R2: {r2:.4f}")
+
+    return predictions
