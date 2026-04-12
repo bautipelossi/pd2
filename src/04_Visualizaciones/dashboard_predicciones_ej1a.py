@@ -92,7 +92,6 @@ def dibujar_dashboard_semanal(df_pandas):
         botones.append(dict(
             label=dias_nombres[dia_idx],
             method="update",
-            # ---> LA SOLUCIÓN ESTÁ AQUÍ: "title.text" en lugar de "title" <---
             args=[{"visible": visibilidad_dia},
                   {"title.text": f"Top 5 Zonas con Más Demanda - {dias_nombres[dia_idx]}"}]
         ))
@@ -122,7 +121,27 @@ def dibujar_dashboard_semanal(df_pandas):
     ruta_final = base_dir.parent / "visualizacion" / "Prediccion_Demanda_E1a" / "dashboard_semanal_interactivo.html"
     ruta_final.parent.mkdir(parents=True, exist_ok=True)
     
-    fig.write_html(str(ruta_final))
+    # ---> SOLUCIÓN DEFINITIVA A PRUEBA DE FALLOS <---
+    # 1. Extraemos SOLO el "corazón" del gráfico (sin la etiqueta HTML que pone Plotly)
+    grafico_div = fig.to_html(full_html=False, include_plotlyjs=True)
+    
+    # 2. Escribimos nosotros mismos el HTML con el título de la pestaña puesto a mano
+    html_completo = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Top 5 Demanda Semanal NYC</title>
+</head>
+<body style="margin: 0; padding: 0;">
+    {grafico_div}
+</body>
+</html>
+"""
+    
+    # 3. Guardamos el archivo final (sobrescribiéndolo de forma limpia)
+    with open(ruta_final, 'w', encoding='utf-8') as file:
+        file.write(html_completo)
+
     print(f"\n¡Dashboard semanal generado con éxito!")
     print(f"Ruta: {ruta_final}")
 
