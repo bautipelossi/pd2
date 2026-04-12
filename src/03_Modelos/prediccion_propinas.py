@@ -416,3 +416,71 @@ def evaluate_model(model, test_df: DataFrame):
     print(f"R2: {r2:.4f}")
 
     return predictions
+
+# ============================================
+# 🔹 6. FUNCIÓN PRINCIPAL (PIPELINE COMPLETO)
+# ============================================
+def run_linear_regression_baseline(df: DataFrame):
+    """
+    Ejecuta todo el flujo:
+    preparación, split, entrenamiento y evaluación
+    """
+    
+    print("🚀 Starting Linear Regression Baseline...")
+    
+    # 1. Preparar datos
+    df = df.drop("tip_amount", "total_amount")
+    
+    # 2. Split
+    train_df, test_df = data_split(df)
+    
+    # 3. Pipeline
+    pipeline = base_pipeline()
+    
+    # 4. Entrenar
+    model = train_model(pipeline, train_df)
+    
+    # 5. Evaluar
+    predictions = evaluate_model(model, test_df)
+    
+    print("✅ Baseline model completed")
+    
+    return model, predictions
+
+
+# ==============================================================================
+# FUNCIÓN PRINCIPAL
+# ==============================================================================
+
+def main():
+    """
+    Función principal que orquesta todo el pipeline de análisis.
+    """
+    print("\n" + "=" * 80)
+    print("  ANÁLISIS DE PODER ADQUISITIVO POR ZONA - NYC TAXI DATA 2023")
+    print("=" * 80)
+    
+    try:
+        spark = crear_spark_session()
+        df_taxi = cargar_datos_taxi(spark)
+        #df_fhv = cargar_datos_fhv(spark)
+        #df_unificado = unificar_datos(df_taxi, df_fhv)
+        #df_metricas = calcular_metricas_por_zona(df_unificado)
+        #df_poder = calcular_poder_adquisitivo(df_metricas)
+        df_final = creacion_variables(df_taxi)
+
+        estudio_analítico(df_final)
+
+        model, predictions = run_linear_regression_baseline(df_final)
+        
+        spark.stop()
+        
+    except Exception as e:
+        print(f"\n❌ Error durante la ejecución: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
+
+
+if __name__ == "__main__":
+    resultado = main()
