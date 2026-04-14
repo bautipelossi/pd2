@@ -12,9 +12,7 @@ from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.sql import Row
 
 def create_spark_session():
-    """Crea la sesión de Spark optimizada para Windows y MinIO"""
     load_dotenv(find_dotenv())
-    
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
     os.environ['HADOOP_HOME'] = "C:/hadoop"
@@ -28,8 +26,7 @@ def create_spark_session():
         .config("spark.hadoop.fs.s3a.path.style.access", "true") \
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
         .config("spark.jars.packages", "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262") \
-        .config("spark.hadoop.fs.s3a.buffer.dir", "C:/tmp/hadoop") \
-        .config("spark.hadoop.fs.s3a.fast.upload", "true") \
+        .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.RawLocalFileSystem") \
         .getOrCreate()
     
     spark.sparkContext.setLogLevel("ERROR")
@@ -166,14 +163,16 @@ if __name__ == "__main__":
     print("PROCESO DE CÁLCULO FINALIZADO EXITOSAMENTE")
     print("-" * 50)
 
-    # 4. Guardar modelo ÚNICAMENTE en local
+    # 4. Guardar modelo únicamente en local
     ruta_modelo_local = str(Path(__file__).resolve().parents[2] / "Entrega1_Pd2" / "datos" / "modelos" / "mejor_modelo_demanda")
     print(f"Guardando mejor modelo localmente en: {ruta_modelo_local}")
     
     try:
-        best_model.write().overwrite().save(ruta_modelo_local)
-        print("Modelo guardado correctamente.")
+        # Usamos el formateo de ruta de Windows para evitar líos
+        ruta_final = "file:///" + ruta_modelo_local.replace("\\", "/")
+        best_model.write().overwrite().save(ruta_final)
+        print(" ¡LOGRADO! Modelo guardado correctamente.")
     except Exception as e:
-        print(f"Error al guardar el modelo localmente: {e}")
+        print(f"Error persistente: {e}")
 
     spark.stop()
