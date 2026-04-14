@@ -1,6 +1,8 @@
+import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
+from dotenv import load_dotenv, find_dotenv
 
 """
     En este Script se hace un único dataset en el que se combinan los datos de 
@@ -19,7 +21,7 @@ YLC_PATH = DATA_DIR / "nyc_taxi_clean.parquet"
 OUTPUT_PATH = DATA_DIR / "resumen_zona_hora.parquet"
 
 def cargar_y_normalizar():
-    print("Leyendo parquets...")
+    print("Leyendo parquets locales...")
     df_fhv = pd.read_parquet(FHV_PATH)
     df_ylc = pd.read_parquet(YLC_PATH)
 
@@ -53,7 +55,6 @@ def cargar_y_normalizar():
 def agregar_por_zona_hora(df_total: pd.DataFrame) -> pd.DataFrame:
     print("Agregando por (pulocationid, pickup_date, pickup_hour, tipo_servicio)...")
 
-    # Agrupamos por fecha exacta en lugar de solo por el número del día de la semana
     agg = (
         df_total
         .groupby(["pulocationid", "pickup_date", "day_of_week", "pickup_hour", "tipo_servicio"])
@@ -75,7 +76,6 @@ def agregar_por_zona_hora(df_total: pd.DataFrame) -> pd.DataFrame:
     pivot["YLC"] = pivot["YLC"].astype(int)
     pivot["demanda_viajes"] = pivot["FHV"] + pivot["YLC"]
 
-    # Para el modelo Spark, renombramos pickup_date a date_only para compatibilidad
     pivot = pivot.rename(columns={"pickup_date": "date_only"})
     
     pivot = pivot.sort_values(["date_only", "pickup_hour", "pulocationid"]).reset_index(drop=True)
@@ -86,9 +86,40 @@ def main():
     df_total = cargar_y_normalizar()
     resumen = agregar_por_zona_hora(df_total)
 
+    # 1. Guardado en LOCAL
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     resumen.to_parquet(OUTPUT_PATH, index=False)
-    print("¡Listo! Ya tienes el dataset preparado correctamente.")
+    print(f" Guardado y sobreescrito LOCALMENTE en: {OUTPUT_PATH}")
+
+    # 2. Guardado en MINIO
+    print("Conectando a MinIO para sobreescribir el archivo en la nube...")
+    load_dotenv(find_dotenv())
+    minio_endpoint = os.getenv("MINIO_ENDPOINT")
+    access_key = os.getenv("MINIO_ACCESS_KEY")
+    secret_key = os.getenv("MINIO_SECRET_KEY")
+    bucket = os.getenv("MINIO_BUCKET")
+    group_path = os.getenv("MINIO_GROUP_PATH")
+
+    if all([minio_endpoint, access_key, secret_key, bucket, group_path]):
+        ruta_s3 = f"s3://{bucket}/{group_path}/limpios/resumen_zona_hora.parquet"
+        try:
+            resumen.to_parquet(
+                ruta_s3,
+                index=False,
+                storage_options={
+                    "key": access_key,
+                    "secret": secret_key,
+                    "client_kwargs": {'endpoint_url': minio_endpoint}
+                }
+            )
+            print(f" ¡Guardado y sobreescrito en MINIO con éxito en: {ruta_s3}!")
+        except Exception as e:
+            print(f" Error al subir a MinIO: {e}")
+            print("El archivo se guardó en local, pero falló la subida a la nube.")
+    else:
+        print(" Aviso: Faltan credenciales de MinIO en el .env. Solo se ha guardado en local.")
+
+    print("\n¡Listo! Ya tienes el dataset preparado correctamente en ambos sitios.")
 
 if __name__ == "__main__":
     main()
