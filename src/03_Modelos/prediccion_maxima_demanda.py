@@ -55,7 +55,8 @@ def prepare_data(spark):
     if "day_of_week" not in df_grouped.columns and "date_only" in df_grouped.columns:
         df_grouped = df_grouped.withColumn("day_of_week", dayofweek("date_only"))
 
-    return df_grouped.dropna()
+    # Rellenamos posibles nulos (por seguridad)
+    return df_grouped.fillna(0).dropna()
 
 def get_zone_dict():
     """Descarga el catálogo oficial de zonas de la TLC y crea un diccionario"""
@@ -83,7 +84,18 @@ def train_and_compare(train_data, val_data):
     indexer_zone = StringIndexer(inputCol="pulocationid", outputCol="zone_idx", handleInvalid="keep")
     indexer_day = StringIndexer(inputCol="day_of_week", outputCol="day_idx", handleInvalid="keep")
     encoder = OneHotEncoder(inputCols=["zone_idx", "day_idx"], outputCols=["zone_vec", "day_vec"])
-    assembler = VectorAssembler(inputCols=["pickup_hour", "zone_vec", "day_vec"], outputCol="features")
+    
+    # --- CAMBIO 1: AÑADIR NUEVAS VARIABLES AL ASSEMBLER ---
+    cols_features = ["pickup_hour", "zone_vec", "day_vec"]
+    columnas_dataset = train_data.columns
+    exogenas = ["temperature_2m", "precipitation", "snowfall", "hay_evento", 
+                "num_restaurantes", "precio_medio_rest", "num_alquileres", "precio_medio_alquiler"]
+    
+    for col_name in exogenas:
+        if col_name in columnas_dataset:
+            cols_features.append(col_name)
+
+    assembler = VectorAssembler(inputCols=cols_features, outputCol="features", handleInvalid="keep")
 
     # 2. Entrenar y validar Random Forest
     rf = RandomForestRegressor(featuresCol="features", labelCol="demanda_viajes", numTrees=50, maxDepth=10)
@@ -113,14 +125,39 @@ def train_and_compare(train_data, val_data):
         print("GANADOR: Gradient-Boosted Trees")
         return model_gbt
 
-def predict_max_demand_zone(spark, model, target_day, target_hour, diccionario_zonas):
+# --- CAMBIO 2: PASAR EL DATASET COMPLETO PARA EXTRAER DATOS ESTÁTICOS ---
+def predict_max_demand_zone(spark, model, dataset_completo, target_day, target_hour, diccionario_zonas):
     """Predice y muestra la zona con mayor demanda, traduciendo el ID a nombre real"""
     print(f"\n--- Prediciendo demanda para el Día {target_day} a las {target_hour}:00 ---")
+    print("Condiciones simuladas: 15ºC, Sin lluvia, Sin eventos.")
     
+    # Extraemos información estática de las zonas (restaurantes y alquileres)
+    columnas_estaticas = ["pulocationid"]
+    if "num_restaurantes" in dataset_completo.columns:
+        columnas_estaticas.extend(["num_restaurantes", "precio_medio_rest", "num_alquileres", "precio_medio_alquiler"])
+    
+    datos_estaticos_zonas = dataset_completo.select(columnas_estaticas).dropDuplicates(["pulocationid"])
+
+    # Creamos la grilla para la predicción con valores por defecto para clima/eventos
     zonas_ids = range(1, 264)
-    data_grid = [Row(pulocationid=int(z), day_of_week=int(target_day), pickup_hour=int(target_hour)) for z in zonas_ids]
+    data_grid = [Row(
+        pulocationid=int(z), 
+        day_of_week=int(target_day), 
+        pickup_hour=int(target_hour),
+        temperature_2m=15.0, 
+        precipitation=0.0, 
+        snowfall=0.0, 
+        hay_evento=0
+    ) for z in zonas_ids]
     
-    df_pred_input = spark.createDataFrame(data_grid)
+    df_grid = spark.createDataFrame(data_grid)
+    
+    # Unimos con los datos estáticos
+    if len(columnas_estaticas) > 1:
+        df_pred_input = df_grid.join(datos_estaticos_zonas, on="pulocationid", how="left").fillna(0)
+    else:
+        df_pred_input = df_grid
+
     predicciones = model.transform(df_pred_input)
     top_zona = predicciones.orderBy(col("prediction").desc()).first()
 
@@ -156,8 +193,8 @@ if __name__ == "__main__":
     # Cargamos el diccionario de zonas oficial
     diccionario_oficial = get_zone_dict()
 
-    # 3. Predicción práctica (pasándole el diccionario)
-    predict_max_demand_zone(spark, best_model, target_day=2, target_hour=8, diccionario_zonas=diccionario_oficial)
+    # 3. Predicción práctica (pasándole el diccionario Y EL DATASET COMPLETO)
+    predict_max_demand_zone(spark, best_model, dataset, target_day=2, target_hour=8, diccionario_zonas=diccionario_oficial)
 
     print("\n" + "-"*50)
     print("PROCESO DE CÁLCULO FINALIZADO EXITOSAMENTE")
