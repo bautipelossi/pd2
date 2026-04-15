@@ -29,12 +29,15 @@ import requests
 import zipfile
 import io
 
-os.environ['HADOOP_HOME'] = r'C:\hadoop'
-os.environ['PATH'] += os.pathsep + r'C:\hadoop\bin'
+os.environ['HADOOP_HOME'] = '' #C:\hadoop
+#os.environ['PATH'] += os.pathsep + r'C:\hadoop\bin'
 # Configuración de PySpark
+import pyspark
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
+
+os.environ['SPARK_HOME'] = os.path.dirname(os.path.dirname(pyspark.__file__))
 
 warnings.filterwarnings('ignore')
 
@@ -42,30 +45,32 @@ warnings.filterwarnings('ignore')
 # PASO 2: CONFIGURACIÓN DE CREDENCIALES MINIO / S3
 # ==============================================================================
 
-# Credenciales MinIO
+# Credenciales MinIO (evitar hardcodear secretos)
 MINIO_CONFIG = {
-    "endpoint": "https://minio.fdi.ucm.es",
-    "access_key": "llcNNHgOBCdDA95Q1sma",
-    "secret_key": "jEtVGZry2V12u1VO22tYBqcUnua3U4W2s7NbOR2Z",
-    "path_style": "true"
+    "endpoint": os.getenv("MINIO_ENDPOINT", "https://minio.fdi.ucm.es"),
+    "access_key": os.getenv("MINIO_ACCESS_KEY", ""),
+    "secret_key": os.getenv("MINIO_SECRET_KEY", ""),
+    "path_style": os.getenv("MINIO_PATH_STYLE", "true")
 }
 
 # Rutas de datos en el bucket
 S3_PATHS = {
-    "taxi": "s3a://tu_bucket/datos/limpios/nyc_taxi_clean.parquet",
-    "fhv": "s3a://tu_bucket/datos/limpios/fhv_2023_clean.parquet"
+    "taxi": os.getenv("MINIO_TAXI_PATH", "s3a://tu_bucket/datos/limpios/nyc_taxi_clean.parquet"),
+    "fhv": os.getenv("MINIO_FHV_PATH", "s3a://tu_bucket/datos/limpios/fhv_2023_clean.parquet")
 }
 
 # Rutas Locales (Backup)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 LOCAL_PATHS = {
-    "taxi": r"C:\Users\rodri\pd2\Entrega1_Pd2\datos\limpios\nyc_taxi_clean.parquet",
-    "fhv": r"C:\Users\rodri\pd2\Entrega1_Pd2\datos\limpios\fhv_2023_clean.parquet"
+    "taxi": os.getenv("LOCAL_TAXI_PATH", os.path.join(PROJECT_ROOT, "datos", "limpios", "nyc_taxi_clean.parquet")),
+    "fhv": os.getenv("LOCAL_FHV_PATH", os.path.join(PROJECT_ROOT, "datos", "limpios", "fhv_2023_clean.parquet"))
 }
+
+RESTAURANTS_PATH = os.getenv("RESTAURANTS_CSV_PATH", os.path.join(PROJECT_ROOT, "datos", "crudos", "restaurantes_nyc_clean.csv"))
+K_DIAGNOSTIC_PNG = os.path.join(PROJECT_ROOT, "outputs", "kmeans_elbow_silhouette.png")
 # URL del shapefile oficial de zonas de taxi de NYC
 TAXI_ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip"
 
-# Archivo de salida
-OUTPUT_FILE = "mapa_poder_adquisitivo_nyc.html"
 
 
 # ==============================================================================
@@ -225,7 +230,7 @@ def creacion_variables(df_taxi):
         "day_of_week", F.dayofweek("tpep_pickup_datetime")
     ).withColumn(
         "is_weekend",
-        when(col("day_of_week").isin([1, 7]), True).
+        F.when(F.col("day_of_week").isin([1, 7]), True).
         otherwise(False)
     ).withColumn(
         "month", F.month("tpep_pickup_datetime")
@@ -233,7 +238,7 @@ def creacion_variables(df_taxi):
 
     # Creación de variables auxiliares cuantitativas
     df_final = df_auxt.withColumn(
-        "tip_pct", (col("tip_amount") / col("fare_amount")) * 100
+        "tip_pct", (F.col("tip_amount") / F.col("fare_amount")) * 100
     )
 
     return df_final
@@ -253,22 +258,22 @@ def estudio_analítico(df_final):
                     ]
 
     print("\n 1) Estadísticas descriptivas de las columnas numéricas")
-    df_final.select(numeric_cols)describe().show()
+    df_final.select(numeric_cols).describe().show()
 
     # --- 2) Análisis variable objetivo
     print("\n 2) Análisis variable objetivo ")
     df_tip_amount = df_final.select(
-        lit("tip_amount").alias("variable"),
-        mean("tip_amount").alias("media"),
-        stddev("tip_amount").alias("desv_tipica"),
+        F.lit("tip_amount").alias("variable"),
+        F.mean("tip_amount").alias("media"),
+        F.stddev("tip_amount").alias("desv_tipica"),
         min("tip_amount").alias("min"),
         max("tip_amount").alias("max")
     ).show()
 
     df_tip_pct = df_final.select(
-        lit("tip_pct").alias("variable"),
-        mean("tip_pct").alias("media"),
-        stddev("tip_pct").alias("desv_tipica"),
+        F.lit("tip_pct").alias("variable"),
+        F.mean("tip_pct").alias("media"),
+        F.stddev("tip_pct").alias("desv_tipica"),
         min("tip_pct").alias("min"),
         max("tip_pct").alias("max")
     ).show()
@@ -291,35 +296,35 @@ def estudio_analítico(df_final):
     print("4) Agregaciones temporale para observar distribución temporal de las propinas")
     
     print("\n Por Hora")
-    df.groupBy("hour").aggregate(
-        mean("tip_amount").alias("avg_tip_amount"),
-        count("*").alias("num_trips")
+    df_final.groupBy("hour").aggregate(
+        F.mean("tip_amount").alias("avg_tip_amount"),
+        F.count("*").alias("num_trips")
     ).orderBy("hour").show()
 
     print("\n Por Día de la Semana")
-    df.groupBy("day_of_week").aggregate(
-        mean("tip_amount").alias("avg_tip_amount"),
-        count("*").alias("num_trips")
+    df_final.groupBy("day_of_week").aggregate(
+        F.mean("tip_amount").alias("avg_tip_amount"),
+        F.count("*").alias("num_trips")
     ).orderBy("day_of_week").show()
 
     print("\n Por Mes")
-    df.groupBy("month").aggregate(
-        mean("tip_amount").alias("avg_tip_amount"),
-        count("*").alias("num_trips")
+    df_final.groupBy("month").aggregate(
+        F.mean("tip_amount").alias("avg_tip_amount"),
+        F.count("*").alias("num_trips")
     ).orderBy("month").show()
 
     print("\n Comparación entre semana vs fin de semana")
-    df.groupBy("is_weekday").aggregate(
-        mean("tip_amount").alias("avg_tip_amount"),
-        count("*").alias("num_trips")
+    df_final.groupBy("is_weekday").aggregate(
+        F.mean("tip_amount").alias("avg_tip_amount"),
+        F.count("*").alias("num_trips")
     ).show()
 
     # --- 5) Comparación entre tarifa y comportamiento con la propina
     print("5) Comparación entre tarifa vs comportamiento con la propina")
 
-    df.groupBy("passenger_count").aggregate(
-        mean("fare_amount").alias("avg_fare"),
-        mean("tip_pct").alias("avg_tip_pct")
+    df_final.groupBy("passenger_count").aggregate(
+        F.mean("fare_amount").alias("avg_fare"),
+        F.mean("tip_pct").alias("avg_tip_pct")
     ).orderBy("passenger_count").show()
 
 
@@ -346,7 +351,7 @@ def base_pipeline():
             ]
     
     assembler = VectorAssembler(
-        inputCols = numeric_cols,
+        inputCols = cols,
         outputCol = "features"
     )
 
@@ -364,16 +369,16 @@ def base_pipeline():
 
     return pipeline
 
-def data_split(df_final: DataFrame, train_ratio: float = 0.8):
+def data_split(df_final, train_ratio: float = 0.8):
     """
     Divide los datos en entrenamiento y test
     """
 
-    train_df, test_df = df.randomSplit([train_ratio, 1-train_ratio], seed=42)
+    train_df, test_df = df_final.randomSplit([train_ratio, 1-train_ratio], seed=42)
 
     return train_df, test_df
 
-def train_model(pipeline: Pipeline, train_df: DataFrame):
+def train_model(pipeline: Pipeline, train_df):
     """
     Se entrena el modelo con el conjunto de entrenamiento
     """
@@ -381,7 +386,7 @@ def train_model(pipeline: Pipeline, train_df: DataFrame):
     model = pipeline.fit(train_df)
     return model
 
-def evaluate_model(model, test_df: DataFrame):
+def evaluate_model(model, test_df):
     """
     Evalúa el modelo usando varias métricas
     """
@@ -420,7 +425,7 @@ def evaluate_model(model, test_df: DataFrame):
 # ============================================
 # 🔹 6. FUNCIÓN PRINCIPAL (PIPELINE COMPLETO)
 # ============================================
-def run_linear_regression_baseline(df: DataFrame):
+def run_linear_regression_baseline(df):
     """
     Ejecuta todo el flujo:
     preparación, split, entrenamiento y evaluación
