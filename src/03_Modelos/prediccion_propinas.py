@@ -42,30 +42,32 @@ warnings.filterwarnings('ignore')
 # PASO 2: CONFIGURACIÓN DE CREDENCIALES MINIO / S3
 # ==============================================================================
 
-# Credenciales MinIO
+# Credenciales MinIO (evitar hardcodear secretos)
 MINIO_CONFIG = {
-    "endpoint": "https://minio.fdi.ucm.es",
-    "access_key": "llcNNHgOBCdDA95Q1sma",
-    "secret_key": "jEtVGZry2V12u1VO22tYBqcUnua3U4W2s7NbOR2Z",
-    "path_style": "true"
+    "endpoint": os.getenv("MINIO_ENDPOINT", "https://minio.fdi.ucm.es"),
+    "access_key": os.getenv("MINIO_ACCESS_KEY", ""),
+    "secret_key": os.getenv("MINIO_SECRET_KEY", ""),
+    "path_style": os.getenv("MINIO_PATH_STYLE", "true")
 }
 
 # Rutas de datos en el bucket
 S3_PATHS = {
-    "taxi": "s3a://tu_bucket/datos/limpios/nyc_taxi_clean.parquet",
-    "fhv": "s3a://tu_bucket/datos/limpios/fhv_2023_clean.parquet"
+    "taxi": os.getenv("MINIO_TAXI_PATH", "s3a://tu_bucket/datos/limpios/nyc_taxi_clean.parquet"),
+    "fhv": os.getenv("MINIO_FHV_PATH", "s3a://tu_bucket/datos/limpios/fhv_2023_clean.parquet")
 }
 
 # Rutas Locales (Backup)
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 LOCAL_PATHS = {
-    "taxi": r"C:\Users\rodri\pd2\Entrega1_Pd2\datos\limpios\nyc_taxi_clean.parquet",
-    "fhv": r"C:\Users\rodri\pd2\Entrega1_Pd2\datos\limpios\fhv_2023_clean.parquet"
+    "taxi": os.getenv("LOCAL_TAXI_PATH", os.path.join(PROJECT_ROOT, "datos", "limpios", "nyc_taxi_clean.parquet")),
+    "fhv": os.getenv("LOCAL_FHV_PATH", os.path.join(PROJECT_ROOT, "datos", "limpios", "fhv_2023_clean.parquet"))
 }
+
+RESTAURANTS_PATH = os.getenv("RESTAURANTS_CSV_PATH", os.path.join(PROJECT_ROOT, "datos", "crudos", "restaurantes_nyc_clean.csv"))
+K_DIAGNOSTIC_PNG = os.path.join(PROJECT_ROOT, "outputs", "kmeans_elbow_silhouette.png")
 # URL del shapefile oficial de zonas de taxi de NYC
 TAXI_ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip"
 
-# Archivo de salida
-OUTPUT_FILE = "mapa_poder_adquisitivo_nyc.html"
 
 
 # ==============================================================================
@@ -253,7 +255,7 @@ def estudio_analítico(df_final):
                     ]
 
     print("\n 1) Estadísticas descriptivas de las columnas numéricas")
-    df_final.select(numeric_cols)describe().show()
+    df_final.select(numeric_cols).describe().show()
 
     # --- 2) Análisis variable objetivo
     print("\n 2) Análisis variable objetivo ")
