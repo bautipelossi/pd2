@@ -18,7 +18,7 @@ import zipfile  # Añadido para descomprimir de forma segura en Windows
 load_dotenv(find_dotenv())
 BASE_DIR = Path(__file__).resolve()
 PROJECT_ROOT = BASE_DIR.parents[2]
-DATOS_DIR = PROJECT_ROOT / "Entrega1_Pd2" / "datos"
+DATOS_DIR = PROJECT_ROOT / "datos"
 
 # Credenciales MinIO
 MINIO_CONF = {

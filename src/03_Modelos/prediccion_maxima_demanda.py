@@ -19,7 +19,9 @@ def create_spark_session():
     os.environ['HADOOP_TMP_DIR'] = "C:/tmp/hadoop"
 
     spark = SparkSession.builder \
-        .appName("Prediccion_Demanda_Taxi_Ex1a") \
+        .appName("Prediccion_Demanda_Taxi_Ex1a_Potenciado") \
+        .config("spark.driver.memory", "4g") \
+        .config("spark.executor.memory", "4g") \
         .config("spark.hadoop.fs.s3a.endpoint", os.getenv("MINIO_ENDPOINT")) \
         .config("spark.hadoop.fs.s3a.access.key", os.getenv("MINIO_ACCESS_KEY")) \
         .config("spark.hadoop.fs.s3a.secret.key", os.getenv("MINIO_SECRET_KEY")) \
@@ -40,7 +42,7 @@ def prepare_data(spark):
     
     ruta_parquet = f"s3a://{minio_bucket}/{minio_groupPath}/limpios/resumen_zona_hora.parquet"
     project_root = Path(__file__).resolve().parents[2]
-    ruta_local = project_root / "Entrega1_Pd2" / "datos" / "limpios" / "resumen_zona_hora.parquet"
+    ruta_local = project_root / "datos" / "limpios" / "resumen_zona_hora.parquet"
 
     try:
         print(f"Intentando leer datos desde MinIO: {ruta_parquet}")
@@ -55,7 +57,6 @@ def prepare_data(spark):
     if "day_of_week" not in df_grouped.columns and "date_only" in df_grouped.columns:
         df_grouped = df_grouped.withColumn("day_of_week", dayofweek("date_only"))
 
-    # Rellenamos posibles nulos (por seguridad)
     return df_grouped.fillna(0).dropna()
 
 def get_zone_dict():
@@ -64,7 +65,6 @@ def get_zone_dict():
     try:
         print("Descargando catálogo oficial de zonas...")
         df_zonas = pd.read_csv(url_oficial)
-        # Crea un diccionario {1: 'Newark Airport', 2: 'Jamaica Bay', ...}
         return dict(zip(df_zonas['LocationID'], df_zonas['Zone']))
     except Exception as e:
         print(f"Aviso: No se pudo descargar el catálogo ({e}). Se usarán IDs genéricos.")
@@ -79,13 +79,11 @@ def evaluate_model(model, dataset):
     return eval_rmse.evaluate(predictions), eval_mae.evaluate(predictions)
 
 def train_and_compare(train_data, val_data):
-    """Entrena RF y GBT en Train, los evalúa en Validation y devuelve el ganador"""
-    # 1. Preparación del Pipeline (Común)
+    """Entrena modelos ultra-potenciados en Train, los evalúa en Validation y devuelve el ganador"""
     indexer_zone = StringIndexer(inputCol="pulocationid", outputCol="zone_idx", handleInvalid="keep")
     indexer_day = StringIndexer(inputCol="day_of_week", outputCol="day_idx", handleInvalid="keep")
     encoder = OneHotEncoder(inputCols=["zone_idx", "day_idx"], outputCols=["zone_vec", "day_vec"])
     
-    # --- CAMBIO 1: AÑADIR NUEVAS VARIABLES AL ASSEMBLER ---
     cols_features = ["pickup_hour", "zone_vec", "day_vec"]
     columnas_dataset = train_data.columns
     exogenas = ["temperature_2m", "precipitation", "snowfall", "hay_evento", 
@@ -97,35 +95,38 @@ def train_and_compare(train_data, val_data):
 
     assembler = VectorAssembler(inputCols=cols_features, outputCol="features", handleInvalid="keep")
 
-    # 2. Entrenar y validar Random Forest
-    rf = RandomForestRegressor(featuresCol="features", labelCol="demanda_viajes", numTrees=50, maxDepth=10)
+    # --- MODELOS POTENCIADOS Y SEGUROS (Anti-Overfitting) ---
+    
+    # 1. Random Forest (Más árboles, nodos con mínimo 5 instancias)
+    rf = RandomForestRegressor(featuresCol="features", labelCol="demanda_viajes", 
+                               numTrees=150, maxDepth=12, maxBins=128, minInstancesPerNode=5, seed=42)
     pipeline_rf = Pipeline(stages=[indexer_zone, indexer_day, encoder, assembler, rf])
-    print("\n> Entrenando Random Forest (sobre set de Train)...")
+    print("\n> Entrenando Random Forest Potenciado (150 árboles)... [Paciencia, puede tardar]")
     model_rf = pipeline_rf.fit(train_data)
     rmse_rf, mae_rf = evaluate_model(model_rf, val_data)
 
-    # 3. Entrenar y validar Gradient-Boosted Trees
-    gbt = GBTRegressor(featuresCol="features", labelCol="demanda_viajes", maxIter=20, maxDepth=5)
+    # 2. Gradient-Boosted Trees (Más iteraciones, profundidad controlada, aprendizaje lento)
+    gbt = GBTRegressor(featuresCol="features", labelCol="demanda_viajes", 
+                       maxIter=80, maxDepth=7, maxBins=128, minInstancesPerNode=5, stepSize=0.05, seed=42)
     pipeline_gbt = Pipeline(stages=[indexer_zone, indexer_day, encoder, assembler, gbt])
-    print("> Entrenando Gradient-Boosted Trees (sobre set de Train)...")
+    print("> Entrenando Gradient-Boosted Trees Potenciado (80 iteraciones)... [Paciencia, puede tardar]")
     model_gbt = pipeline_gbt.fit(train_data)
     rmse_gbt, mae_gbt = evaluate_model(model_gbt, val_data)
 
-    # 4. Mostrar comparativa
-    print("\n" + "="*40)
-    print(f" RESULTADOS EN VALIDATION (Selección)")
+    # Mostrar comparativa
+    print("\n" + "="*50)
+    print(f" RESULTADOS EN VALIDATION (Modelos Ultra)")
     print(f" RF  -> RMSE: {rmse_rf:.2f} | MAE: {mae_rf:.2f}")
     print(f" GBT -> RMSE: {rmse_gbt:.2f} | MAE: {mae_gbt:.2f}")
-    print("="*40)
+    print("="*50)
 
     if rmse_rf < rmse_gbt:
-        print("GANADOR: Random Forest")
+        print("GANADOR: Random Forest Potenciado")
         return model_rf
     else:
-        print("GANADOR: Gradient-Boosted Trees")
+        print("GANADOR: Gradient-Boosted Trees Potenciado")
         return model_gbt
 
-# --- CAMBIO 2: PASAR EL DATASET COMPLETO PARA EXTRAER DATOS ESTÁTICOS ---
 def predict_max_demand_zone(spark, model, dataset_completo, target_day, target_hour, diccionario_zonas):
     """Predice y muestra la zona con mayor demanda, traduciendo el ID a nombre real"""
     print(f"\n--- Prediciendo demanda para el Día {target_day} a las {target_hour}:00 ---")
@@ -164,8 +165,6 @@ def predict_max_demand_zone(spark, model, dataset_completo, target_day, target_h
     if top_zona:
         zona_id = int(top_zona['pulocationid'])
         viajes = round(top_zona['prediction'], 2)
-        
-        # Usa el diccionario dinámico. Si por algún motivo el ID no existe, pone "Zona Desconocida"
         nombre_real = diccionario_zonas.get(zona_id, "Zona Desconocida")
         
         print(f"LA ZONA RECOMENDADA ES: {nombre_real} (ID: {zona_id})")
@@ -177,35 +176,33 @@ if __name__ == "__main__":
     print("Preparando y dividiendo datos...")
     dataset = prepare_data(spark)
     
-    # DIVISIÓN: Train (70%), Validation (15%), Test (15%)
-    train_df, val_df, test_df = dataset.randomSplit([0.7, 0.15, 0.15], seed=42)
+    # DIVISIÓN: Train (80%), Validation (10%), Test (10%) para igualar fuerzas con el Baseline
+    train_df, val_df, test_df = dataset.randomSplit([0.8, 0.1, 0.1], seed=42)
 
     # 1. Entrenar y elegir el mejor modelo usando Validation
     best_model = train_and_compare(train_df, val_df)
 
     # 2. Examen Final: Evaluar el ganador en Test
-    print("\n" + "*"*40)
-    print(" EXAMEN FINAL EN SET DE TEST")
+    print("\n" + "*"*50)
+    print(" EXAMEN FINAL EN SET DE TEST (Batalla vs Baseline)")
     rmse_test, mae_test = evaluate_model(best_model, test_df)
     print(f" Rendimiento real -> RMSE: {rmse_test:.2f} | MAE: {mae_test:.2f}")
-    print("*"*40)
+    print("*"*50)
 
-    # Cargamos el diccionario de zonas oficial
     diccionario_oficial = get_zone_dict()
 
-    # 3. Predicción práctica (pasándole el diccionario Y EL DATASET COMPLETO)
+    # 3. Predicción práctica
     predict_max_demand_zone(spark, best_model, dataset, target_day=2, target_hour=8, diccionario_zonas=diccionario_oficial)
 
     print("\n" + "-"*50)
     print("PROCESO DE CÁLCULO FINALIZADO EXITOSAMENTE")
     print("-" * 50)
 
-    # 4. Guardar modelo únicamente en local
-    ruta_modelo_local = str(Path(__file__).resolve().parents[2] / "Entrega1_Pd2" / "datos" / "modelos" / "mejor_modelo_demanda")
+    # 4. Guardar modelo
+    ruta_modelo_local = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
     print(f"Guardando mejor modelo localmente en: {ruta_modelo_local}")
     
     try:
-        # Usamos el formateo de ruta de Windows para evitar líos
         ruta_final = "file:///" + ruta_modelo_local.replace("\\", "/")
         best_model.write().overwrite().save(ruta_final)
         print(" ¡LOGRADO! Modelo guardado correctamente.")

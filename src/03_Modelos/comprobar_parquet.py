@@ -4,7 +4,7 @@ from pathlib import Path
 # Buscamos el archivo en la misma ruta que usamos antes
 BASE_DIR = Path(__file__).resolve()
 PROJECT_ROOT = BASE_DIR.parents[2]
-PARQUET_PATH = PROJECT_ROOT / "Entrega1_Pd2" / "datos" / "limpios" / "resumen_zona_hora.parquet"
+PARQUET_PATH = PROJECT_ROOT / "datos" / "limpios" / "resumen_zona_hora.parquet"
 
 def comprobar_datos():
     print(f"Buscando archivo en: {PARQUET_PATH}")

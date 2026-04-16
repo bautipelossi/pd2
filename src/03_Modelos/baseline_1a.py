@@ -26,7 +26,7 @@ def load_data():
     
     # Ruta local dinámica basada en la estructura del repo
     project_root = Path(__file__).resolve().parents[2]
-    ruta_local = project_root / "Entrega1_Pd2" / "datos" / "limpios" / "resumen_zona_hora.parquet"
+    ruta_local = project_root / "datos" / "limpios" / "resumen_zona_hora.parquet"
 
     try:
         print(f"Intentando descargar datos desde MinIO: {ruta_s3}")

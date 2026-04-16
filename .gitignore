@@ -27,6 +27,14 @@ taxi_zones/
 !package.json
 graphs/
 
+# --- Modelos de Machine Learning ---
+# Ignoramos las carpetas de modelos (tanto si están en src como en la raíz)
+src/modelos/
+modelos/
+*.pkl
+*.model
+*.joblib
+
 # --- Temporales de Python ---
 **/__pycache__/
 *.pyc

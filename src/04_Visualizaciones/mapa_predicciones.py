@@ -18,7 +18,7 @@ def create_spark_session():
     return spark
 
 def cargar_modelo(spark):
-    ruta_modelo = str(Path(__file__).resolve().parents[2] / "Entrega1_Pd2" / "datos" / "modelos" / "mejor_modelo_demanda")
+    ruta_modelo = str(Path(__file__).resolve().parents[2] / "datos" / "modelos" / "mejor_modelo_demanda")
     print(f"Cargando modelo entrenado desde: {ruta_modelo}")
     return PipelineModel.load(ruta_modelo)
 
