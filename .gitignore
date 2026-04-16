@@ -22,6 +22,7 @@ taxi_zones/
 *.parquet
 *.zip
 *.json
+*.png
 !requirements.txt
 !package.json
 graphs/
