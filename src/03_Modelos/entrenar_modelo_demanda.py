@@ -811,13 +811,39 @@ def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> foliu
         left: 12px;
         z-index: 9999;
         background: rgba(255, 255, 255, 0.90);
-        padding: 6px 8px;
+        padding: 8px 10px;
         border: 1px solid #cccccc;
         border-radius: 5px;
         font-size: 12px;
+        line-height: 1.2;
     ">
-        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#5dade2;margin-right:6px;"></span>
-        Restaurantes (puntos)
+        <div style="font-weight:700; margin-bottom:4px;">Restaurantes</div>
+        <div style="color:#245b87; margin-bottom:5px;">Azul mas intenso = mayor rating</div>
+
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                <polygon points="6,1 11,11 1,11" fill="#5dade2"></polygon>
+            </svg>
+            <span>$ = Economico</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                <rect x="1.5" y="1.5" width="9" height="9" fill="#5dade2"></rect>
+            </svg>
+            <span>$$ = Medio</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px; margin-bottom:2px;">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                <polygon points="6,1 10.8,4.7 9,10.8 3,10.8 1.2,4.7" fill="#5dade2"></polygon>
+            </svg>
+            <span>$$$ = Alto</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+                <polygon points="6,1 10,3.1 10,8.9 6,11 2,8.9 2,3.1" fill="#5dade2"></polygon>
+            </svg>
+            <span>$$$$ = Muy alto</span>
+        </div>
     </div>
     """
     m.get_root().html.add_child(Element(blue_point_legend))
@@ -828,6 +854,37 @@ def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> foliu
 def agregar_capa_restaurantes(m: folium.Map, gdf_rest: Optional[gpd.GeoDataFrame]) -> folium.Map:
     if gdf_rest is None or gdf_rest.empty:
         return m
+
+    def normalizar_categoria_precio(raw_price) -> str:
+        if raw_price is None or pd.isna(raw_price):
+            return "Sin dato"
+
+        txt = str(raw_price).strip()
+        if not txt:
+            return "Sin dato"
+
+        try:
+            level = int(float(txt))
+            level = min(max(level, 1), 4)
+            return "$" * level
+        except Exception:
+            pass
+
+        dollar_count = txt.count("$")
+        if dollar_count > 0:
+            return "$" * min(dollar_count, 4)
+
+        txt_low = txt.lower()
+        if txt_low in {"low", "cheap", "economico", "budget"}:
+            return "$"
+        if txt_low in {"medium", "moderate", "medio"}:
+            return "$$"
+        if txt_low in {"high", "alto", "expensive"}:
+            return "$$$"
+        if txt_low in {"luxury", "premium", "muy alto"}:
+            return "$$$$"
+
+        return "Sin dato"
 
     fg = folium.FeatureGroup(name="Restaurantes", show=False)
     for _, row in gdf_rest.iterrows():
@@ -844,17 +901,20 @@ def agregar_capa_restaurantes(m: folium.Map, gdf_rest: Optional[gpd.GeoDataFrame
         else:
             marker_color = "#a6cee3"
 
-        radius = 4.0
-        if price_cat is not None:
-            try:
-                p = float(price_cat)
-                radius = 3.0 + min(max(p, 1.0), 4.0)
-            except Exception:
-                pass
+        categoria_precio = normalizar_categoria_precio(price_cat)
+        marker_sides = {
+            "$": 3,
+            "$$": 4,
+            "$$$": 5,
+            "$$$$": 6,
+            "Sin dato": 24,
+        }.get(categoria_precio, 24)
+
+        marker_radius = 6.0
+        marker_rotation = 45 if categoria_precio == "$$" else 0
 
         popup_parts = [f"Rating: {row.get('rating', 'N/A')}"]
-        if price_cat is not None:
-            popup_parts.append(f"Categoria precio: {price_cat}")
+        popup_parts.append(f"Categoria precio: {categoria_precio}")
         if "name" in row and row["name"] is not None:
             popup_parts.insert(0, f"Nombre: {row['name']}")
         elif "restaurant" in row and row["restaurant"] is not None:
@@ -862,13 +922,15 @@ def agregar_capa_restaurantes(m: folium.Map, gdf_rest: Optional[gpd.GeoDataFrame
         elif "nombre" in row and row["nombre"] is not None:
             popup_parts.insert(0, f"Nombre: {row['nombre']}")
 
-        folium.CircleMarker(
+        folium.RegularPolygonMarker(
             location=[row["lat"], row["lon"]],
-            radius=radius,
+            number_of_sides=marker_sides,
+            radius=marker_radius,
+            rotation=marker_rotation,
             color=marker_color,
             fill=True,
-            fillColor=marker_color,
-            fillOpacity=0.92,
+            fill_color=marker_color,
+            fill_opacity=0.92,
             weight=1.0,
             popup="<br>".join(popup_parts),
         ).add_to(fg)

@@ -1,985 +1,989 @@
-"""
-================================================================================
-MAPA COROPLÉTICO DE PODER ADQUISITIVO POR ZONA - NYC TAXI DATA 2023
-================================================================================
-
-Este script genera un mapa coroplético de Nueva York que representa el poder
-adquisitivo estimado por zona usando datos de taxis y VTC (FHV).
-
-DEPENDENCIAS:
-    pip install pandas geopandas folium branca requests scipy
-
-EJECUCIÓN:
-    python mapa_poder_adquisitivo.py
-
-================================================================================
-"""
-
-# ==============================================================================
-# PASO 1: IMPORTAR LIBRERÍAS
-# ==============================================================================
-
-import os
-import warnings
-from typing import Tuple
-
-import pandas as pd
-import geopandas as gpd
-import folium
-from folium import plugins
-import branca.colormap as cm
-from scipy import stats
-import requests
-import zipfile
 import io
+import logging
+import os
+import shutil
+import sys
+import zipfile
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
-os.environ['HADOOP_HOME'] = r'C:\hadoop'
-os.environ['PATH'] += os.pathsep + r'C:\hadoop\bin'
-# Configuración de PySpark
-from pyspark.sql import SparkSession
+import branca.colormap as cm
+import folium
+import geopandas as gpd
+import pandas as pd
+import requests
+from branca.element import Element
+from dotenv import load_dotenv
+from folium import plugins
+
+from pyspark.ml.clustering import KMeans
+from pyspark.ml.feature import MinMaxScaler, VectorAssembler
+from pyspark.ml.functions import vector_to_array
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
+from pyspark.sql.window import Window
+from pyspark.sql.window import Window
 
-warnings.filterwarnings('ignore')
 
-# ==============================================================================
-# PASO 2: CONFIGURACIÓN DE CREDENCIALES MINIO / S3
-# ==============================================================================
+# -----------------------------------------------------------------------------
+# Configuración inicial (carga entorno). Incluye fallback por si falla conexión
+# -----------------------------------------------------------------------------
+load_dotenv()
 
-# Credenciales MinIO
-MINIO_CONFIG = {
-    "endpoint": "https://minio.fdi.ucm.es",
-    "access_key": "llcNNHgOBCdDA95Q1sma",
-    "secret_key": "jEtVGZry2V12u1VO22tYBqcUnua3U4W2s7NbOR2Z",
-    "path_style": "true"
+# Evita que Spark intente usar el alias "python" de Windows Store.
+os.environ["PYSPARK_PYTHON"] = sys.executable
+os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
+
+MINIO_CONFIG: Dict[str, str] = {
+    "endpoint": os.getenv("MINIO_ENDPOINT", "https://minio.fdi.ucm.es"),
+    "access_key": os.getenv("MINIO_ACCESS_KEY", "llcNNHgOBCdDA95Q1sma"),
+    "secret_key": os.getenv("MINIO_SECRET_KEY", "jEtVGZry2V12u1VO22tYBqcUnua3U4W2s7NbOR2Z"),
+    "path_style": os.getenv("MINIO_PATH_STYLE", "true"),
 }
 
-# Rutas de datos en el bucket
 S3_PATHS = {
-    "taxi": "s3a://tu_bucket/datos/limpios/nyc_taxi_clean.parquet",
-    "fhv": "s3a://tu_bucket/datos/limpios/fhv_2023_clean.parquet"
+    "taxi": "s3a://pd2/taxomanos/limpios/nyc_taxi_clean.parquet",
+    "fhv": "s3a://pd2/taxomanos/limpios/fhv_2023_clean.parquet",
+    "restaurants": "s3a://pd2/taxomanos/limpios/restaurantes_nyc_clean.csv",
 }
 
-# Rutas Locales (Backup)
-LOCAL_PATHS = {
-    "taxi": r"C:\Users\Bauti\pd2\Entrega1_Pd2\datos\limpios\nyc_taxi_clean.parquet",
-    "fhv": r"C:\Users\Bauti\pd2\Entrega1_Pd2\datos\limpios\fhv_2023_clean.parquet"
+LOCAL_FALLBACKS = {
+    "taxi": "datos/limpios/nyc_taxi_clean.parquet",
+    "fhv": "datos/limpios/fhv_2023_clean.parquet",
+    "restaurants": "datos/crudos/restaurantes_nyc_clean.csv",
 }
-# URL del shapefile oficial de zonas de taxi de NYC
+
+RESTAURANTS_LOCAL_CANDIDATES = [
+    "datos/crudos/restaurantes_nyc_clean.csv",
+]
+
+RENTALS_LOCAL_CANDIDATES = [
+    "datos/crudos/NY Realstate Pricing.csv",
+    "datos/crudos/NY_Realstate_Pricing.csv",
+]
+
 TAXI_ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip"
 
-# Archivo de salida
-OUTPUT_FILE = "mapa_poder_adquisitivo_nyc.html"
+OUTPUT_DATA_DIR = Path("outputs")
+OUTPUT_MAP_DIR = Path("src/Visualizacion/Cluster_adquisitivo")
+OUTPUT_HTML = OUTPUT_MAP_DIR / "mapa_poder_adquisitivo.html"
+OUTPUT_PARQUET = OUTPUT_DATA_DIR / "zonas_aggregated.parquet"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s",
+)
+logger = logging.getLogger("cluster_zonas")
 
 
-# ==============================================================================
-# PASO 3: CREAR Y CONFIGURAR SESIÓN SPARK PARA MINIO
-# ==============================================================================
-
+# -----------------------------------------------------------------------------
+# Spark session
+# -----------------------------------------------------------------------------
 def crear_spark_session() -> SparkSession:
-    """
-    Crea y configura una sesión de Spark para conectarse a MinIO usando S3A.
-    
-    La configuración incluye:
-    - Credenciales de acceso a MinIO
-    - Endpoint personalizado
-    - Path style access (necesario para MinIO)
-    - Paquetes necesarios para S3A y AWS
-    
-    Returns:
-        SparkSession: Sesión de Spark configurada
-    """
-    print("=" * 60)
-    print("PASO 3: Configurando sesión de Spark para MinIO...")
-    print("=" * 60)
-    
-    # Paquetes necesarios para conectividad S3
     packages = [
         "org.apache.hadoop:hadoop-aws:3.3.4",
-        "com.amazonaws:aws-java-sdk-bundle:1.12.262"
+        "com.amazonaws:aws-java-sdk-bundle:1.12.262",
     ]
-    
-    spark = (SparkSession.builder
-        .appName("NYC_Taxi_Poder_Adquisitivo")
-        .master("local[*]")  # Usar todos los cores disponibles
-        
-        # Configuración de memoria
+
+    spark = (
+        SparkSession.builder.appName("NYC_Taxi_FHV_Poder_Adquisitivo")
+        .master("local[*]")
         .config("spark.driver.memory", "4g")
         .config("spark.executor.memory", "4g")
-        
-        # Paquetes Maven para S3
+        .config("spark.pyspark.driver.python", sys.executable)
+        .config("spark.pyspark.python", sys.executable)
+        .config("spark.executorEnv.PYSPARK_PYTHON", sys.executable)
         .config("spark.jars.packages", ",".join(packages))
-        
-        # Configuración S3A para MinIO
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_CONFIG["endpoint"])
         .config("spark.hadoop.fs.s3a.access.key", MINIO_CONFIG["access_key"])
         .config("spark.hadoop.fs.s3a.secret.key", MINIO_CONFIG["secret_key"])
         .config("spark.hadoop.fs.s3a.path.style.access", MINIO_CONFIG["path_style"])
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-        
-        # Deshabilitar SSL verification si es necesario (desarrollo)
+        .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "true")
-        
-        # Configuración adicional para compatibilidad
-        .config("spark.hadoop.fs.s3a.aws.credentials.provider", 
-                "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
-        
+        # Timeouts en milisegundos para evitar parseos ambiguos en Hadoop/S3A.
+        .config("spark.hadoop.fs.s3a.connection.timeout", "60000")
+        .config("spark.hadoop.fs.s3a.connection.establish.timeout", "5000")
+        .config("spark.hadoop.fs.s3a.threads.keepalivetime", "60")
+        .config("spark.hadoop.fs.s3a.connection.ttl", "600000")
+        .config("spark.hadoop.fs.s3a.connection.request.timeout", "60000")
+        .config("spark.hadoop.fs.s3a.multipart.purge", "false")
+        .config("spark.hadoop.fs.s3a.multipart.purge.age", "86400")
+        .config("spark.hadoop.fs.s3a.attempts.maximum", "1")
+        .config("spark.hadoop.fs.s3a.retry.limit", "1")
         .getOrCreate()
     )
-    
-    # Reducir verbosidad de logs
     spark.sparkContext.setLogLevel("WARN")
-    
-    print(f" Spark Session creada: {spark.version}")
-    print(f" Endpoint MinIO: {MINIO_CONFIG['endpoint']}")
-    
+    logger.info("Spark iniciado: %s", spark.version)
     return spark
 
 
-# ==============================================================================
-# PASO 4: CARGAR DATOS (INTENTO MINIO -> BACKUP LOCAL)
-# ==============================================================================
+# -----------------------------------------------------------------------------
+# I/O helpers
+# -----------------------------------------------------------------------------
+def preferir_local() -> bool:
+    # En Windows priorizamos local para evitar bloqueos de lectura S3A en entornos docentes.
+    mode = os.getenv("PREFER_LOCAL_DATA", "auto").strip().lower()
+    if mode in {"1", "true", "yes", "local"}:
+        return True
+    if mode in {"0", "false", "no", "s3"}:
+        return False
+    return os.name == "nt"
 
-def cargar_dataset(spark: SparkSession, nombre_clave: str):
-    """
-    Intenta cargar datos desde MinIO. Si falla, carga desde el backup local.
-    """
-    print(f"\n--- Cargando dataset: {nombre_clave} ---")
-    
-    # 1. Intento con MinIO
+
+def resolve_project_path(path_str: str) -> Path:
+    p = Path(path_str)
+    if p.is_absolute():
+        return p
+    return (PROJECT_ROOT / p).resolve()
+
+
+def first_existing_path(candidates) -> Optional[Path]:
+    for c in candidates:
+        p = resolve_project_path(c)
+        if p.exists():
+            return p
+    return None
+
+
+def cargar_parquet_con_fallback(spark: SparkSession, key: str) -> DataFrame:
+    s3_path = S3_PATHS[key]
+    local_path = LOCAL_FALLBACKS.get(key)
+    local_abs = resolve_project_path(local_path) if local_path else None
+
+    if preferir_local():
+        if local_abs and local_abs.exists():
+            logger.info("Leyendo %s desde local (prioridad Windows): %s", key, local_abs)
+            return spark.read.parquet(str(local_abs))
+        raise FileNotFoundError(
+            f"No existe fallback local para {key}: {local_abs}. "
+            "En Windows se evita MinIO por defecto para no bloquear la sesion. "
+            "Si quieres forzar S3, define PREFER_LOCAL_DATA=s3"
+        )
+
     try:
-        print(f"Intentando cargar desde MinIO: {S3_PATHS[nombre_clave]}...")
-        df = spark.read.parquet(S3_PATHS[nombre_clave])
-        print(f" {nombre_clave.capitalize()} cargado exitosamente desde MinIO.")
-        return df
-    except Exception as e:
-        print(f" Fallo en MinIO: {str(e).splitlines()[0]}") # Solo mostramos la primera línea del error
-        
-    # 2. Intento con Local (Backup)
-    try:
-        print(f"Recurriendo al backup local: {LOCAL_PATHS[nombre_clave]}...")
-        df = spark.read.parquet(LOCAL_PATHS[nombre_clave])
-        print(f" {nombre_clave.capitalize()} cargado desde disco local.")
-        return df
-    except Exception as e:
-        print(f" Error crítico: No se encontró el dataset en MinIO ni en Local.")
-        raise e
+        logger.info("Leyendo %s desde MinIO: %s", key, s3_path)
+        return spark.read.parquet(s3_path)
+    except Exception as s3_err:
+        logger.warning("Fallo MinIO para %s: %s", key, str(s3_err).splitlines()[0])
 
-def cargar_datos_taxi(spark: SparkSession):
-    df_taxi = cargar_dataset(spark, "taxi")
-    
-    # --- NORMALIZACIÓN DE COLUMNAS ---
-    # Si viene en minúsculas (pulocationid), la renombramos a CamelCase (PULocationID)
-    if "pulocationid" in df_taxi.columns:
-        df_taxi = df_taxi.withColumnRenamed("pulocationid", "PULocationID")
-    
-    columnas_taxi = ["PULocationID", "tip_amount", "passenger_count", "total_amount"]
-    # Verificamos qué columnas existen realmente (en el log dice que tienes tip_amount, total_amount, etc.)
-    columnas_existentes = [col for col in columnas_taxi if col in df_taxi.columns]
-    
-    df_taxi = df_taxi.select(columnas_existentes)
-    df_taxi = df_taxi.withColumn("tipo_servicio", F.lit("taxi"))
-    
-    print(f" Datos de taxi normalizados y cargados.")
-    return df_taxi
+    if local_abs and local_abs.exists():
+        logger.info("Intentando fallback local: %s", local_abs)
+        return spark.read.parquet(str(local_abs))
 
-def cargar_datos_fhv(spark: SparkSession):
-    df_fhv = cargar_dataset(spark, "fhv")
-    
-    if "PULocationID" in df_fhv.columns:
-        df_fhv = df_fhv.select("PULocationID")
-    elif "pickup_location_id" in df_fhv.columns:
-        df_fhv = df_fhv.select(F.col("pickup_location_id").alias("PULocationID"))
-    
-    df_fhv = (df_fhv
-        .withColumn("tip_amount", F.lit(0.0).cast(DoubleType()))
-        .withColumn("passenger_count", F.lit(1.0).cast(DoubleType()))
-        .withColumn("total_amount", F.lit(0.0).cast(DoubleType()))
-        .withColumn("tipo_servicio", F.lit("fhv"))
+    raise RuntimeError(f"No se pudo leer dataset {key} desde S3 ni local")
+
+
+def find_first_existing_column(df: DataFrame, candidates) -> Optional[str]:
+    cols_lower = {c.lower(): c for c in df.columns}
+    for c in candidates:
+        if c in df.columns:
+            return c
+        if c.lower() in cols_lower:
+            return cols_lower[c.lower()]
+    return None
+
+
+# -----------------------------------------------------------------------------
+# Metricas ETL
+# -----------------------------------------------------------------------------
+def preparar_taxi(df_taxi_raw: DataFrame) -> DataFrame:
+    pickup_col = find_first_existing_column(
+        df_taxi_raw,
+        ["PULocationID", "pulocationid", "pickup_location_id"],
     )
-    return df_fhv
+    if not pickup_col:
+        raise ValueError("Taxi no tiene columna de pickup_location_id/PULocationID")
 
-# ==============================================================================
-# PASO 5: UNIFICAR DATOS DE TAXIS Y FHV
-# ==============================================================================
+    tip_col = find_first_existing_column(df_taxi_raw, ["tip_amount"])
+    passenger_col = find_first_existing_column(df_taxi_raw, ["passenger_count"])
 
-def unificar_datos(df_taxi, df_fhv):
-    """
-    Unifica los datasets de taxis y FHV en un único DataFrame.
-    """
-    print("\n" + "=" * 60)
-    print("PASO 5: Unificando datos de taxis y FHV...")
-    print("=" * 60)
-    
-    columnas_comunes = ["PULocationID", "tip_amount", "passenger_count", "total_amount", "tipo_servicio"]
-    
-    df_taxi_sel = df_taxi.select(columnas_comunes)
-    df_fhv_sel = df_fhv.select(columnas_comunes)
-    
-    df_unificado = df_taxi_sel.union(df_fhv_sel)
-    
-    df_unificado = df_unificado.filter(
-        (F.col("PULocationID").isNotNull()) & 
-        (F.col("PULocationID") > 0) &
-        (F.col("PULocationID") <= 265)
+    if not tip_col or not passenger_col:
+        raise ValueError("Taxi no tiene tip_amount o passenger_count")
+
+    df = (
+        df_taxi_raw.select(
+            F.col(pickup_col).alias("LocationID"),
+            F.col(tip_col).cast(DoubleType()).alias("tip_amount"),
+            F.col(passenger_col).cast(DoubleType()).alias("passenger_count"),
+        )
+        .filter(F.col("LocationID").isNotNull())
+        .filter((F.col("LocationID") > 0) & (F.col("LocationID") <= 265))
     )
-    
-    count_total = df_unificado.count()
-    count_taxi = df_unificado.filter(F.col("tipo_servicio") == "taxi").count()
-    count_fhv = df_unificado.filter(F.col("tipo_servicio") == "fhv").count()
-    
-    print(f" Total registros unificados: {count_total:,}")
-    print(f"  - Taxis: {count_taxi:,}")
-    print(f"  - FHV: {count_fhv:,}")
-    
-    return df_unificado
 
-
-# ==============================================================================
-# PASO 6: CALCULAR MÉTRICAS POR ZONA
-# ==============================================================================
-
-def calcular_metricas_por_zona(df_unificado):
-    """
-    Calcula métricas agregadas por zona de taxi (PULocationID):
-    - Propina media (tip_amount mean)
-    - Número medio de pasajeros (passenger_count mean)
-    - Volumen de viajes (count)
-    """
-    print("\n" + "=" * 60)
-    print("PASO 6: Calculando métricas por zona...")
-    print("=" * 60)
-    
-    df_metricas = df_unificado.groupBy("PULocationID").agg(
-        F.avg("tip_amount").alias("propina_media"),
-        F.avg("passenger_count").alias("pasajeros_medios"),
-        F.count("*").alias("volumen_viajes"),
-        F.sum("tip_amount").alias("propina_total"),
-        F.avg("total_amount").alias("tarifa_media"),
-        F.sum(F.when(F.col("tipo_servicio") == "taxi", 1).otherwise(0)).alias("viajes_taxi"),
-        F.sum(F.when(F.col("tipo_servicio") == "fhv", 1).otherwise(0)).alias("viajes_fhv")
+    taxi_agg = df.groupBy("LocationID").agg(
+        F.avg("tip_amount").alias("tip_amount_avg"),
+        F.avg("passenger_count").alias("passenger_count_avg"),
+        F.count("*").alias("taxi_trip_count"),
     )
-    
-    df_metricas = df_metricas.fillna({
-        "propina_media": 0.0,
-        "pasajeros_medios": 1.0,
-        "propina_total": 0.0,
-        "tarifa_media": 0.0
-    })
-    
-    print("\n Preview de métricas por zona:")
-    df_metricas.orderBy(F.desc("volumen_viajes")).show(10)
-    
-    zonas = df_metricas.count()
-    print(f" Métricas calculadas para {zonas} zonas")
-    
-    return df_metricas
+    return taxi_agg
 
 
-# ==============================================================================
-# PASO 7: CALCULAR ÍNDICE DE PODER ADQUISITIVO
-# ==============================================================================
-
-def calcular_poder_adquisitivo(df_metricas):
-    """
-    Calcula el índice de poder adquisitivo aproximado usando z-scores normalizados.
-    
-    Fórmula:
-        poder_adquisitivo = zscore(propina_media) + zscore(pasajeros_medios) + zscore(volumen_viajes)
-    """
-    print("\n" + "=" * 60)
-    print("PASO 7: Calculando índice de poder adquisitivo...")
-    print("=" * 60)
-    
-    # Calcular estadísticas para z-scores
-    estadisticas = df_metricas.select(
-        F.mean("propina_media").alias("mean_propina"),
-        F.stddev("propina_media").alias("std_propina"),
-        F.mean("pasajeros_medios").alias("mean_pasajeros"),
-        F.stddev("pasajeros_medios").alias("std_pasajeros"),
-        F.mean("volumen_viajes").alias("mean_volumen"),
-        F.stddev("volumen_viajes").alias("std_volumen")
-    ).collect()[0]
-    
-    print(f"\n Estadísticas para normalización:")
-    print(f"   Propina media:    μ={estadisticas['mean_propina']:.2f}, σ={estadisticas['std_propina']:.2f}")
-    print(f"   Pasajeros medios: μ={estadisticas['mean_pasajeros']:.2f}, σ={estadisticas['std_pasajeros']:.2f}")
-    print(f"   Volumen viajes:   μ={estadisticas['mean_volumen']:.0f}, σ={estadisticas['std_volumen']:.0f}")
-    
-    # Calcular z-scores
-    df_con_zscores = df_metricas.withColumn(
-        "zscore_propina",
-        (F.col("propina_media") - estadisticas["mean_propina"]) / estadisticas["std_propina"]
-    ).withColumn(
-        "zscore_pasajeros",
-        (F.col("pasajeros_medios") - estadisticas["mean_pasajeros"]) / estadisticas["std_pasajeros"]
-    ).withColumn(
-        "zscore_volumen",
-        (F.col("volumen_viajes") - estadisticas["mean_volumen"]) / estadisticas["std_volumen"]
+def preparar_fhv(df_fhv_raw: DataFrame) -> DataFrame:
+    pickup_col = find_first_existing_column(
+        df_fhv_raw,
+        ["PULocationID", "pulocationid", "pickup_location_id"],
     )
-    
-    df_con_zscores = df_con_zscores.fillna({
-        "zscore_propina": 0.0,
-        "zscore_pasajeros": 0.0,
-        "zscore_volumen": 0.0
-    })
-    
-    # Calcular índice de poder adquisitivo
-    df_poder = df_con_zscores.withColumn(
-        "poder_adquisitivo",
-        F.col("zscore_propina") + F.col("zscore_pasajeros") + F.col("zscore_volumen")
+    if not pickup_col:
+        raise ValueError("FHV no tiene columna de pickup_location_id/PULocationID")
+
+    df = (
+        df_fhv_raw.select(F.col(pickup_col).alias("LocationID"))
+        .filter(F.col("LocationID").isNotNull())
+        .filter((F.col("LocationID") > 0) & (F.col("LocationID") <= 265))
     )
-    
-    # Normalizar a escala 0-100
-    min_max = df_poder.select(
-        F.min("poder_adquisitivo").alias("min_pa"),
-        F.max("poder_adquisitivo").alias("max_pa")
-    ).collect()[0]
-    
-    df_poder = df_poder.withColumn(
-        "poder_adquisitivo_normalizado",
-        ((F.col("poder_adquisitivo") - min_max["min_pa"]) / 
-         (min_max["max_pa"] - min_max["min_pa"])) * 100
-    ).fillna({"poder_adquisitivo_normalizado": 50.0})
-    
-    print(f"\n Rango de poder adquisitivo: [{min_max['min_pa']:.2f}, {min_max['max_pa']:.2f}]")
-    print(" Índice de poder adquisitivo calculado y normalizado (0-100)")
-    
-    return df_poder
 
-# ==============================================================================
-# PASO 7b: CLUSTERING DE ZONAS CON SPARK MLLIB (KMEANS)
-# ==============================================================================
+    fhv_agg = df.groupBy("LocationID").agg(F.count("*").alias("fhv_trip_count"))
+    return fhv_agg
 
-from pyspark.ml.feature import VectorAssembler, StandardScaler
-from pyspark.ml.clustering import KMeans
-from pyspark.ml.evaluation import ClusteringEvaluator
 
-def clustering_zonas_spark(df_metricas, n_clusters=5):
-    """
-    Agrupa las zonas en clusters usando KMeans de Spark MLlib.
-    
-    El clustering se basa en:
-    - Propina media
-    - Pasajeros medios
-    - Volumen de viajes
-    
-    Args:
-        df_metricas: DataFrame con métricas por zona
-        n_clusters: Número de clusters (default: 5)
-        
-    Returns:
-        DataFrame con columna 'cluster' añadida
-    """
-    print("\n" + "=" * 60)
-    print("PASO 7b: Clustering de zonas con KMeans (Spark MLlib)...")
-    print("=" * 60)
-    
-    # Columnas de features para clustering
-    feature_cols = ["propina_media", "pasajeros_medios", "volumen_viajes"]
-    
-    # Rellenar nulos antes de vectorizar
-    df_clean = df_metricas.fillna({
-        "propina_media": 0.0,
-        "pasajeros_medios": 1.0,
-        "volumen_viajes": 0
-    })
-    
-    # PASO 1: Crear vector de features
+def combinar_metricas(taxi_agg: DataFrame, fhv_agg: DataFrame) -> DataFrame:
+    df = taxi_agg.join(fhv_agg, on="LocationID", how="full_outer").fillna(
+        {
+            "tip_amount_avg": 0.0,
+            "passenger_count_avg": 0.0,
+            "taxi_trip_count": 0,
+            "fhv_trip_count": 0,
+        }
+    )
+
+    df = df.withColumn(
+        "volumen_viajes",
+        F.col("taxi_trip_count") + F.col("fhv_trip_count"),
+    )
+    return df
+
+
+def calcular_indice_poder_adquisitivo(df: DataFrame) -> DataFrame:
+    has_alquiler = "alquiler_mediano" in df.columns
+    feature_cols = ["tip_amount_avg", "passenger_count_avg", "volumen_viajes"]
+    if has_alquiler:
+        feature_cols.append("alquiler_mediano")
+
     assembler = VectorAssembler(
         inputCols=feature_cols,
-        outputCol="features_raw"
+        outputCol="features_raw",
     )
-    df_vectorized = assembler.transform(df_clean)
-    
-    # PASO 2: Escalar features (importante para KMeans)
-    scaler = StandardScaler(
-        inputCol="features_raw",
-        outputCol="features",
-        withStd=True,
-        withMean=True
-    )
-    scaler_model = scaler.fit(df_vectorized)
-    df_scaled = scaler_model.transform(df_vectorized)
-    
-    # PASO 3: Entrenar modelo KMeans
-    print(f"\n🔄 Entrenando KMeans con k={n_clusters} clusters...")
-    
-    kmeans = KMeans(
-        featuresCol="features",
-        predictionCol="cluster",
-        k=n_clusters,
-        seed=42,
-        maxIter=100
-    )
-    
-    modelo_kmeans = kmeans.fit(df_scaled)
-    
-    # PASO 4: Predecir clusters
-    df_clustered = modelo_kmeans.transform(df_scaled)
-    
-    # PASO 5: Evaluar clustering (Silhouette Score)
-    evaluator = ClusteringEvaluator(
-        featuresCol="features",
-        predictionCol="cluster",
-        metricName="silhouette"
-    )
-    silhouette = evaluator.evaluate(df_clustered)
-    
-    print(f"✓ Modelo KMeans entrenado")
-    print(f"✓ Silhouette Score: {silhouette:.4f}")
-    print(f"✓ Centros de clusters:")
-    
-    # Mostrar centros de clusters
-    centers = modelo_kmeans.clusterCenters()
-    for i, center in enumerate(centers):
-        print(f"   Cluster {i}: propina={center[0]:.2f}, pasajeros={center[1]:.2f}, volumen={center[2]:.2f}")
-    
-    # Contar zonas por cluster
-    print(f"\n📊 Distribución de zonas por cluster:")
-    df_clustered.groupBy("cluster").count().orderBy("cluster").show()
-    
-    # Seleccionar columnas relevantes (sin vectores)
-    columnas_resultado = [col for col in df_metricas.columns] + ["cluster"]
-    df_resultado = df_clustered.select(
-        *[c for c in columnas_resultado if c in df_clustered.columns]
-    )
-    
-    return df_resultado, modelo_kmeans
+    df_vec = assembler.transform(df)
 
+    scaler = MinMaxScaler(inputCol="features_raw", outputCol="features_scaled")
+    scaler_model = scaler.fit(df_vec)
+    df_scaled = scaler_model.transform(df_vec)
 
-# ==============================================================================
-# PASO 7b: CLUSTERING DE ZONAS CON KMEANS
-# ==============================================================================
+    arr_col = vector_to_array("features_scaled")
+    norm_col_map = {
+        "tip_amount_avg": "tip_norm",
+        "passenger_count_avg": "passenger_norm",
+        "volumen_viajes": "volumen_norm",
+        "alquiler_mediano": "alquiler_norm",
+    }
 
-from pyspark.ml.feature import VectorAssembler, StandardScaler
-from pyspark.ml.clustering import KMeans
-from pyspark.ml.evaluation import ClusteringEvaluator
+    for i, raw_col in enumerate(feature_cols):
+        df_scaled = df_scaled.withColumn(norm_col_map[raw_col], arr_col[i])
 
-def clustering_zonas_spark(df_metricas, n_clusters=5):
-    """
-    Agrupa las zonas en clusters usando KMeans de Spark MLlib.
-    
-    El clustering se basa en:
-    - Propina media
-    - Pasajeros medios
-    - Volumen de viajes
-    
-    Args:
-        df_metricas: DataFrame con métricas por zona
-        n_clusters: Número de clusters (default: 5)
-        
-    Returns:
-        DataFrame con columna 'cluster' añadida
-    """
-    print("\n" + "=" * 60)
-    print("PASO 7b: Clustering de zonas con KMeans (Spark MLlib)...")
-    print("=" * 60)
-    
-    # Columnas de features para clustering
-    feature_cols = ["propina_media", "pasajeros_medios", "volumen_viajes"]
-    
-    # Rellenar nulos antes de vectorizar
-    df_clean = df_metricas.fillna({
-        "propina_media": 0.0,
-        "pasajeros_medios": 1.0,
-        "volumen_viajes": 0
-    })
-    
-    # PASO 1: Crear vector de features
-    assembler = VectorAssembler(
-        inputCols=feature_cols,
-        outputCol="features_raw"
-    )
-    df_vectorized = assembler.transform(df_clean)
-    
-    # PASO 2: Escalar features (importante para KMeans)
-    scaler = StandardScaler(
-        inputCol="features_raw",
-        outputCol="features",
-        withStd=True,
-        withMean=True
-    )
-    scaler_model = scaler.fit(df_vectorized)
-    df_scaled = scaler_model.transform(df_vectorized)
-    
-    # PASO 3: Entrenar modelo KMeans
-    print(f"\n🔄 Entrenando KMeans con k={n_clusters} clusters...")
-    
-    kmeans = KMeans(
-        featuresCol="features",
-        predictionCol="cluster",
-        k=n_clusters,
-        seed=42,
-        maxIter=100
-    )
-    
-    modelo_kmeans = kmeans.fit(df_scaled)
-    
-    # PASO 4: Predecir clusters
-    df_clustered = modelo_kmeans.transform(df_scaled)
-    
-    # PASO 5: Evaluar clustering (Silhouette Score)
-    evaluator = ClusteringEvaluator(
-        featuresCol="features",
-        predictionCol="cluster",
-        metricName="silhouette"
-    )
-    silhouette = evaluator.evaluate(df_clustered)
-    
-    print(f"✓ Modelo KMeans entrenado")
-    print(f"✓ Silhouette Score: {silhouette:.4f}")
-    print(f"✓ Centros de clusters:")
-    
-    # Mostrar centros de clusters
-    centers = modelo_kmeans.clusterCenters()
-    for i, center in enumerate(centers):
-        print(f"   Cluster {i}: propina={center[0]:.2f}, pasajeros={center[1]:.2f}, volumen={center[2]:.2f}")
-    
-    # Contar zonas por cluster
-    print(f"\n📊 Distribución de zonas por cluster:")
-    df_clustered.groupBy("cluster").count().orderBy("cluster").show()
-    
-    # Seleccionar columnas relevantes (sin vectores)
-    columnas_resultado = [col for col in df_metricas.columns] + ["cluster"]
-    df_resultado = df_clustered.select(
-        *[c for c in columnas_resultado if c in df_clustered.columns]
-    )
-    
-    return df_resultado, modelo_kmeans
-
-
-def encontrar_k_optimo(df_metricas, k_range=range(2, 10)):
-    """
-    Encuentra el número óptimo de clusters usando el método del codo y Silhouette.
-    
-    Args:
-        df_metricas: DataFrame con métricas
-        k_range: Rango de valores de k a probar
-        
-    Returns:
-        DataFrame con métricas para cada k
-    """
-    print("\n" + "=" * 60)
-    print("Buscando número óptimo de clusters (Elbow Method)...")
-    print("=" * 60)
-    
-    feature_cols = ["propina_media", "pasajeros_medios", "volumen_viajes"]
-    
-    df_clean = df_metricas.fillna({
-        "propina_media": 0.0,
-        "pasajeros_medios": 1.0,
-        "volumen_viajes": 0
-    })
-    
-    assembler = VectorAssembler(inputCols=feature_cols, outputCol="features_raw")
-    df_vectorized = assembler.transform(df_clean)
-    
-    scaler = StandardScaler(inputCol="features_raw", outputCol="features", withStd=True, withMean=True)
-    df_scaled = scaler.fit(df_vectorized).transform(df_vectorized)
-    
-    resultados = []
-    evaluator = ClusteringEvaluator(featuresCol="features", predictionCol="cluster")
-    
-    for k in k_range:
-        kmeans = KMeans(featuresCol="features", predictionCol="cluster", k=k, seed=42)
-        modelo = kmeans.fit(df_scaled)
-        
-        # Calcular WSSSE (Within Set Sum of Squared Errors)
-        wssse = modelo.summary.trainingCost
-        
-        # Calcular Silhouette
-        predictions = modelo.transform(df_scaled)
-        silhouette = evaluator.evaluate(predictions)
-        
-        resultados.append({"k": k, "wssse": wssse, "silhouette": silhouette})
-        print(f"  k={k}: WSSSE={wssse:.2f}, Silhouette={silhouette:.4f}")
-    
-    # Mejor k por Silhouette
-    mejor = max(resultados, key=lambda x: x["silhouette"])
-    print(f"\n✓ K óptimo sugerido: {mejor['k']} (Silhouette={mejor['silhouette']:.4f})")
-    
-    return resultados, mejor["k"]
-
-# ==============================================================================
-# PASO 8: DESCARGAR A PANDAS
-# ==============================================================================
-
-def convertir_a_pandas(df_spark) -> pd.DataFrame:
-    """
-    Convierte el DataFrame de Spark a pandas para visualización.
-    """
-    print("\n" + "=" * 60)
-    print("PASO 8: Descargando resultado a pandas...")
-    print("=" * 60)
-    
-    df_pandas = df_spark.toPandas()
-    df_pandas = df_pandas.rename(columns={"PULocationID": "LocationID"})
-    
-    print(f"✓ DataFrame convertido a pandas: {len(df_pandas)} filas, {len(df_pandas.columns)} columnas")
-    print(f"\n📋 Columnas disponibles: {list(df_pandas.columns)}")
-    
-    return df_pandas
-
-
-# ==============================================================================
-# PASO 9: CARGAR SHAPEFILE DE ZONAS DE TAXI
-# ==============================================================================
-
-def descargar_shapefile_zonas() -> gpd.GeoDataFrame:
-    """
-    Descarga y carga el shapefile oficial de zonas de taxi de NYC.
-    """
-    print("\n" + "=" * 60)
-    print("PASO 9: Cargando shapefile de zonas de taxi NYC...")
-    print("=" * 60)
-    
-    shapefile_dir = "taxi_zones"
-    shapefile_path = os.path.join(shapefile_dir, "taxi_zones.shp")
-    
-    if not os.path.exists(shapefile_path):
-        print(f"📥 Descargando shapefile desde TLC NYC...")
-        
-        try:
-            response = requests.get(TAXI_ZONES_URL, timeout=30)
-            response.raise_for_status()
-            
-            with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                z.extractall(shapefile_dir)
-            
-            print(f"✓ Shapefile descargado y extraído en '{shapefile_dir}/'")
-            
-        except Exception as e:
-            print(f"⚠ Error descargando shapefile: {e}")
-            alt_url = "https://data.cityofnewyork.us/api/geospatial/d3c5-ddgc?method=export&format=Shapefile"
-            try:
-                response = requests.get(alt_url, timeout=30)
-                response.raise_for_status()
-                with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-                    z.extractall(shapefile_dir)
-                print(f"✓ Shapefile descargado desde fuente alternativa")
-            except:
-                raise Exception("No se pudo descargar el shapefile de zonas de taxi")
+    if has_alquiler:
+        weights = {
+            "tip_norm": 0.35,
+            "passenger_norm": 0.15,
+            "volumen_norm": 0.25,
+            "alquiler_norm": 0.25,
+        }
     else:
-        print(f"✓ Shapefile encontrado en caché: '{shapefile_path}'")
-    
-    gdf = gpd.read_file(shapefile_path)
-    
-    if "OBJECTID" in gdf.columns and "LocationID" not in gdf.columns:
-        gdf = gdf.rename(columns={"OBJECTID": "LocationID"})
-    
-    if gdf.crs != "EPSG:4326":
+        weights = {
+            "tip_norm": 0.50,
+            "passenger_norm": 0.20,
+            "volumen_norm": 0.30,
+        }
+
+    score_expr = F.lit(0.0)
+    for c, w in weights.items():
+        score_expr = score_expr + F.col(c) * F.lit(w)
+
+    df_idx = df_scaled.withColumn("poder_adquisitivo", score_expr)
+
+    df_idx = df_idx.withColumn(
+        "poder_adquisitivo_0_100", F.col("poder_adquisitivo") * F.lit(100.0)
+    )
+
+    return df_idx.drop("features_raw", "features_scaled")
+
+
+def aplicar_kmeans(df: DataFrame, k: int = 6) -> Tuple[DataFrame, KMeans]:
+    feature_cols = ["tip_norm", "passenger_norm", "volumen_norm"]
+    if "alquiler_norm" in df.columns:
+        feature_cols.append("alquiler_norm")
+
+    assembler = VectorAssembler(
+        inputCols=feature_cols,
+        outputCol="kmeans_features",
+    )
+    df_vec = assembler.transform(df)
+
+    kmeans = KMeans(
+        k=k,
+        seed=42,
+        featuresCol="kmeans_features",
+        predictionCol="cluster",
+        maxIter=100,
+    )
+    model = kmeans.fit(df_vec)
+    pred = model.transform(df_vec).drop("kmeans_features")
+
+    # Reordenamos clusters por poder adquisitivo medio: 0 = mas ricos, k-1 = mas pobres.
+    cluster_order = (
+        pred.groupBy("cluster")
+        .agg(F.avg("poder_adquisitivo_0_100").alias("cluster_mean"))
+        .orderBy(F.desc("cluster_mean"))
+    )
+    w = Window.orderBy(F.desc("cluster_mean"))
+    cluster_map = cluster_order.withColumn("cluster_rank", F.row_number().over(w) - F.lit(1)).select(
+        F.col("cluster").alias("cluster_raw"),
+        F.col("cluster_rank").cast("int").alias("cluster"),
+    )
+
+    pred = pred.join(cluster_map, pred.cluster == cluster_map.cluster_raw, "left").drop("cluster_raw", pred.cluster)
+    pred = pred.withColumn("cluster_label", F.concat(F.lit("Cluster "), F.col("cluster").cast("string")))
+    return pred, model
+
+
+# -----------------------------------------------------------------------------
+# Geo + mapa
+# -----------------------------------------------------------------------------
+def descargar_y_encontrar_shapefile(base_dir: Path = Path("taxi_zones")) -> Path:
+    base_dir.mkdir(parents=True, exist_ok=True)
+
+    shp_files = list(base_dir.rglob("*.shp"))
+    if shp_files:
+        best = sorted(shp_files, key=lambda p: (p.name != "taxi_zones.shp", len(str(p))))[0]
+        logger.info("Shapefile encontrado en cache: %s", best)
+        return best
+
+    logger.info("Descargando shapefile desde: %s", TAXI_ZONES_URL)
+    resp = requests.get(TAXI_ZONES_URL, timeout=60)
+    resp.raise_for_status()
+
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        zf.extractall(base_dir)
+
+    shp_files = list(base_dir.rglob("*.shp"))
+    if not shp_files:
+        raise FileNotFoundError("No se encontro .shp tras extraer taxi_zones.zip")
+
+    best = sorted(shp_files, key=lambda p: (p.name != "taxi_zones.shp", len(str(p))))[0]
+    logger.info("Shapefile detectado: %s", best)
+    return best
+
+
+def cargar_zonas_gdf() -> gpd.GeoDataFrame:
+    shp_path = descargar_y_encontrar_shapefile()
+    gdf = gpd.read_file(shp_path)
+
+    if "LocationID" not in gdf.columns:
+        for c in ["OBJECTID", "objectid", "locationid", "LocationId"]:
+            if c in gdf.columns:
+                gdf = gdf.rename(columns={c: "LocationID"})
+                break
+
+    if "LocationID" not in gdf.columns:
+        raise ValueError("El shapefile no contiene LocationID/OBJECTID")
+
+    gdf["LocationID"] = gdf["LocationID"].astype(int)
+
+    if gdf.crs is None:
+        gdf = gdf.set_crs("EPSG:4326")
+    elif gdf.crs.to_string() != "EPSG:4326":
         gdf = gdf.to_crs("EPSG:4326")
-    
-    print(f"✓ Shapefile cargado: {len(gdf)} zonas")
-    print(f"✓ CRS: {gdf.crs}")
-    print(f"✓ Columnas: {list(gdf.columns)}")
-    
-    print(f"\n📍 Preview de zonas:")
-    print(gdf[["LocationID", "zone", "borough"]].head(10).to_string())
-    
+
     return gdf
 
 
-# ==============================================================================
-# PASO 10: JOIN ENTRE SHAPEFILE Y DATOS
-# ==============================================================================
+def cargar_restaurantes_filtrados(
+    spark: SparkSession,
+    gdf_zonas: Optional[gpd.GeoDataFrame] = None,
+    max_points: int = 1500,
+) -> Optional[gpd.GeoDataFrame]:
+    try:
+        source = S3_PATHS["restaurants"]
+        local_rest_abs = first_existing_path(RESTAURANTS_LOCAL_CANDIDATES)
 
-def hacer_join_espacial(gdf_zonas: gpd.GeoDataFrame, df_metricas: pd.DataFrame) -> gpd.GeoDataFrame:
-    """
-    Realiza el join entre el shapefile de zonas y las métricas calculadas.
-    """
-    print("\n" + "=" * 60)
-    print("PASO 10: Realizando join espacial...")
-    print("=" * 60)
-    
-    gdf_zonas["LocationID"] = gdf_zonas["LocationID"].astype(int)
-    df_metricas["LocationID"] = df_metricas["LocationID"].astype(int)
-    
-    gdf_merged = gdf_zonas.merge(df_metricas, on="LocationID", how="left")
-    
-    columnas_metricas = [
-        "propina_media", "pasajeros_medios", "volumen_viajes",
-        "poder_adquisitivo", "poder_adquisitivo_normalizado"
-    ]
-    
-    for col in columnas_metricas:
-        if col in gdf_merged.columns:
-            gdf_merged[col] = gdf_merged[col].fillna(0)
-    
-    zonas_con_datos = gdf_merged[gdf_merged["volumen_viajes"] > 0].shape[0]
-    zonas_sin_datos = gdf_merged[gdf_merged["volumen_viajes"] == 0].shape[0]
-    
-    print(f"✓ Join completado:")
-    print(f"  - Zonas con datos: {zonas_con_datos}")
-    print(f"  - Zonas sin datos: {zonas_sin_datos}")
-    print(f"  - Total zonas: {len(gdf_merged)}")
-    
-    return gdf_merged
+        if preferir_local():
+            if local_rest_abs:
+                source = str(local_rest_abs)
+            else:
+                logger.info("No hay CSV local de restaurantes; se omite capa de restaurantes.")
+                return None
+
+        # Si es local, usamos pandas para evitar stages extra de Spark en Windows.
+        if str(source).lower().startswith("s3a://"):
+            df = spark.read.option("header", True).option("inferSchema", True).csv(source)
+
+            rating_col = find_first_existing_column(df, ["rating", "stars", "score"])
+            lat_col = find_first_existing_column(df, ["latitude", "lat", "y"])
+            lon_col = find_first_existing_column(df, ["longitude", "lon", "lng", "x"])
+            price_col = find_first_existing_column(
+                df,
+                ["price_category", "price category", "price", "price_level", "price level"],
+            )
+
+            if not rating_col or not lat_col or not lon_col:
+                logger.warning("CSV restaurantes sin columnas esperadas de rating/lat/lon.")
+                return None
+
+            extra_cols = [c for c in df.columns if c.lower() in ("name", "restaurant", "nombre")]
+            if price_col:
+                extra_cols.append(price_col)
+
+            df_f = (
+                df.filter(F.col(rating_col) >= 3)
+                .filter(F.col(lat_col).isNotNull() & F.col(lon_col).isNotNull())
+                .select(
+                    F.col(rating_col).cast(DoubleType()).alias("rating"),
+                    F.col(lat_col).cast(DoubleType()).alias("lat"),
+                    F.col(lon_col).cast(DoubleType()).alias("lon"),
+                    *[F.col(c) for c in extra_cols],
+                )
+                .limit(max_points)
+            )
+
+            pdf = df_f.toPandas()
+        else:
+            pdf = pd.read_csv(source)
+
+            cols_lower = {c.lower(): c for c in pdf.columns}
+            rating_col = cols_lower.get("rating") or cols_lower.get("stars") or cols_lower.get("score")
+            lat_col = cols_lower.get("latitude") or cols_lower.get("lat") or cols_lower.get("y")
+            lon_col = cols_lower.get("longitude") or cols_lower.get("lon") or cols_lower.get("lng") or cols_lower.get("x")
+            price_col = (
+                cols_lower.get("price_category")
+                or cols_lower.get("price category")
+                or cols_lower.get("price_level")
+                or cols_lower.get("price level")
+                or cols_lower.get("price")
+            )
+
+            if not rating_col or not lat_col or not lon_col:
+                logger.warning("CSV restaurantes local sin columnas esperadas de rating/lat/lon.")
+                return None
+
+            keep = [rating_col, lat_col, lon_col]
+            for n in ["name", "restaurant", "nombre"]:
+                if n in cols_lower:
+                    keep.append(cols_lower[n])
+                    break
+            if price_col:
+                keep.append(price_col)
+
+            pdf = pdf[keep].copy()
+            pdf = pdf.dropna(subset=[rating_col, lat_col, lon_col])
+            pdf[rating_col] = pd.to_numeric(pdf[rating_col], errors="coerce")
+            pdf[lat_col] = pd.to_numeric(pdf[lat_col], errors="coerce")
+            pdf[lon_col] = pd.to_numeric(pdf[lon_col], errors="coerce")
+            pdf = pdf.dropna(subset=[rating_col, lat_col, lon_col])
+            pdf = pdf[pdf[rating_col] >= 3]
+            pdf = pdf.head(max_points)
+
+            rename_map = {rating_col: "rating", lat_col: "lat", lon_col: "lon"}
+            if price_col:
+                rename_map[price_col] = "price_category"
+            pdf = pdf.rename(columns=rename_map)
+        if pdf.empty:
+            return None
+
+        gdf = gpd.GeoDataFrame(
+            pdf,
+            geometry=gpd.points_from_xy(pdf["lon"], pdf["lat"]),
+            crs="EPSG:4326",
+        )
+
+        if gdf_zonas is not None and not gdf_zonas.empty:
+            minx, miny, maxx, maxy = gdf_zonas.total_bounds
+            gdf = gdf[
+                (gdf["lon"] >= minx)
+                & (gdf["lon"] <= maxx)
+                & (gdf["lat"] >= miny)
+                & (gdf["lat"] <= maxy)
+            ].copy()
+            zones_mask = gdf_zonas[["LocationID", "geometry"]].copy()
+            gdf = gpd.sjoin(gdf, zones_mask, how="inner", predicate="within").drop(columns=["index_right"])
+
+        return gdf
+    except Exception as e:
+        logger.warning("No se pudo cargar restaurantes: %s", str(e).splitlines()[0])
+        return None
 
 
-# ==============================================================================
-# PASO 11: CREAR MAPA COROPLÉTICO CON FOLIUM
-# ==============================================================================
+def cargar_alquiler_por_zona_spark(spark: SparkSession, gdf_zonas: gpd.GeoDataFrame) -> Optional[DataFrame]:
+    try:
+        rental_path = first_existing_path(RENTALS_LOCAL_CANDIDATES)
+        if rental_path is None:
+            logger.info("No se encontro dataset local de alquileres; se continua sin esta capa.")
+            return None
 
-def crear_mapa_coropletico(gdf: gpd.GeoDataFrame) -> folium.Map:
-    """
-    Crea un mapa coroplético interactivo de NYC con poder adquisitivo por zona.
-    """
-    print("\n" + "=" * 60)
-    print("PASO 11: Creando mapa coroplético...")
-    print("=" * 60)
-    
-    nyc_center = [40.7128, -74.0060]
-    
-    mapa = folium.Map(
-        location=nyc_center,
-        zoom_start=10,
-        tiles="cartodbpositron",
-        control_scale=True
+        pdf = pd.read_csv(rental_path)
+
+        col_map = {c.lower(): c for c in pdf.columns}
+        lat_col = col_map.get("latitude") or col_map.get("lat")
+        lon_col = col_map.get("longitude") or col_map.get("lon")
+        price_col = col_map.get("price")
+
+        if not lat_col or not lon_col or not price_col:
+            logger.warning("CSV de alquileres sin columnas esperadas latitude/longitude/price.")
+            return None
+
+        pdf = pdf[[lat_col, lon_col, price_col]].copy()
+        pdf = pdf.dropna()
+        pdf[price_col] = pd.to_numeric(pdf[price_col], errors="coerce")
+        pdf = pdf.dropna()
+        pdf = pdf[pdf[price_col] > 0]
+
+        if pdf.empty:
+            logger.info("Dataset de alquileres sin filas utiles tras limpieza.")
+            return None
+
+        gdf_rent = gpd.GeoDataFrame(
+            pdf.rename(columns={price_col: "price", lat_col: "lat", lon_col: "lon"}),
+            geometry=gpd.points_from_xy(pdf[lon_col], pdf[lat_col]),
+            crs="EPSG:4326",
+        )
+
+        zonas = gdf_zonas[["LocationID", "geometry"]].copy()
+        joined = gpd.sjoin(gdf_rent, zonas, how="inner", predicate="within")
+        if joined.empty:
+            logger.info("No hubo matches espaciales entre alquileres y taxi zones.")
+            return None
+
+        rent_agg = (
+            joined.groupby("LocationID", as_index=False)
+            .agg(
+                alquiler_medio=("price", "mean"),
+                alquiler_mediano=("price", "median"),
+                alquiler_count=("price", "size"),
+            )
+        )
+
+        return spark.createDataFrame(rent_agg)
+    except Exception as e:
+        logger.warning("No se pudo cargar/agregar alquileres: %s", str(e).splitlines()[0])
+        return None
+
+
+def incorporar_alquiler_metricas(metricas: DataFrame, alquiler_df: Optional[DataFrame]) -> DataFrame:
+    if alquiler_df is None:
+        return metricas
+
+    return metricas.join(alquiler_df, on="LocationID", how="left").fillna(
+        {
+            "alquiler_medio": 0.0,
+            "alquiler_mediano": 0.0,
+            "alquiler_count": 0,
+        }
     )
-    
-    min_val = gdf["poder_adquisitivo_normalizado"].min()
-    max_val = gdf["poder_adquisitivo_normalizado"].max()
-    
+
+
+def crear_mapa(gdf_merged: gpd.GeoDataFrame, usar_cluster: bool = True) -> folium.Map:
+    nyc_center = [40.7128, -74.0060]
+    m = folium.Map(location=nyc_center, zoom_start=10, tiles="cartodbpositron", control_scale=True)
+
+    min_val = float(gdf_merged["poder_adquisitivo_0_100"].min())
+    max_val = float(gdf_merged["poder_adquisitivo_0_100"].max())
+
     colormap = cm.LinearColormap(
-        colors=["#f7fbff", "#6baed6", "#2171b5", "#08306b"],
+        colors=["#f7fcf5", "#a1d99b", "#31a354", "#006d2c"],
         vmin=min_val,
         vmax=max_val,
-        caption="Índice de Poder Adquisitivo (0-100)"
+        caption="Mapa de intensidad",
     )
-    
-    def style_function(feature):
-        valor = feature["properties"].get("poder_adquisitivo_normalizado", 0)
+
+    def style_power(feature):
+        value = feature["properties"].get("poder_adquisitivo_0_100", 0.0)
+        fill = colormap(value) if value is not None else "#d9d9d9"
         return {
-            "fillColor": colormap(valor) if valor else "#gray",
+            "fillColor": fill,
             "color": "#333333",
-            "weight": 0.5,
-            "fillOpacity": 0.7
+            "weight": 0.6,
+            "fillOpacity": 0.75,
         }
-    
-    def highlight_function(feature):
-        return {
-            "fillColor": "#ffff00",
-            "color": "#000000",
-            "weight": 2,
-            "fillOpacity": 0.9
-        }
-    
-    tooltip = folium.GeoJsonTooltip(
-        fields=[
-            "zone", 
-            "borough", 
-            "propina_media", 
-            "volumen_viajes",
-            "poder_adquisitivo_normalizado"
-        ],
-        aliases=[
-            "Zona:", 
-            "Borough:", 
-            "Propina Media ($):", 
-            "Num Viajes:",
-            "Poder Adquisitivo:"
-        ],
-        localize=True,
-        sticky=True,
-        style="""
-            background-color: white;
-            border: 2px solid #333;
-            border-radius: 5px;
-            box-shadow: 3px 3px 3px rgba(0,0,0,0.3);
-            font-size: 12px;
-            padding: 10px;
-        """
+
+    tooltip_fields = [
+        "zone",
+        "borough",
+        "LocationID",
+        "volumen_viajes",
+        "poder_adquisitivo_0_100",
+    ]
+    tooltip_fields = [c for c in tooltip_fields if c in gdf_merged.columns]
+    aliases = [
+        "Zone",
+        "Borough",
+        "LocationID",
+        "Cantidad de viajes",
+        "Poder adquisitivo",
+    ][: len(tooltip_fields)]
+
+    layer_power = folium.GeoJson(
+        gdf_merged,
+        name="Poder adquisitivo",
+        overlay=True,
+        style_function=style_power,
+        highlight_function=lambda _: {"weight": 2, "fillOpacity": 0.95},
+        tooltip=folium.GeoJsonTooltip(fields=tooltip_fields, aliases=aliases, sticky=True),
     )
-    
-    geojson_layer = folium.GeoJson(
-        gdf,
-        name="Poder Adquisitivo por Zona",
-        style_function=style_function,
-        highlight_function=highlight_function,
-        tooltip=tooltip
-    )
-    
-    geojson_layer.add_to(mapa)
-    colormap.add_to(mapa)
-    folium.LayerControl().add_to(mapa)
-    
-    titulo_html = """
-    <div style="position: fixed; 
-                top: 10px; 
-                left: 50px; 
-                z-index: 9999; 
-                background-color: white;
-                padding: 15px;
-                border: 2px solid #333;
-                border-radius: 10px;
-                box-shadow: 3px 3px 5px rgba(0,0,0,0.3);
-                font-family: Arial, sans-serif;">
-        <h3 style="margin: 0; color: #333;">
-            Mapa de Poder Adquisitivo - NYC Taxi Zones
-        </h3>
-        <p style="margin: 5px 0 0 0; color: #666; font-size: 12px;">
-            Basado en propinas, pasajeros y volumen de viajes (2023)
-        </p>
+    layer_power.add_to(m)
+    colormap.add_to(m)
+
+    layer_cluster = None
+    if usar_cluster and "cluster" in gdf_merged.columns:
+        cluster_cmap = cm.LinearColormap(
+            colors=["#005a32", "#238b45", "#41ab5d", "#74c476", "#a1d99b", "#e5f5e0"],
+            vmin=0,
+            vmax=5,
+        )
+
+        def style_cluster(feature):
+            c = feature["properties"].get("cluster", -1)
+            if c is None or int(c) < 0:
+                return {
+                    "fillColor": "#d9d9d9",
+                    "color": "#8c8c8c",
+                    "weight": 0.4,
+                    "fillOpacity": 0.35,
+                }
+            color = cluster_cmap(int(c))
+            return {
+                "fillColor": color,
+                "color": "#222222",
+                "weight": 0.6,
+                "fillOpacity": 0.80,
+            }
+
+        layer_cluster = folium.GeoJson(
+            gdf_merged,
+            name="Cluster KMeans",
+            overlay=True,
+            style_function=style_cluster,
+            highlight_function=lambda _: {"weight": 2, "fillOpacity": 0.9},
+            tooltip=folium.GeoJsonTooltip(
+                fields=[c for c in ["zone", "borough", "LocationID", "cluster_label"] if c in gdf_merged.columns],
+                aliases=["Zone", "Borough", "LocationID", "Cluster"],
+                sticky=True,
+            ),
+            show=False,
+        )
+        layer_cluster.add_to(m)
+
+    plugins.MiniMap(toggle_display=True).add_to(m)
+    plugins.Fullscreen(position="topleft").add_to(m)
+
+    # Forzamos exclusividad entre capas tematicas sin tocar el basemap,
+    # y mostramos la barra solo cuando esta activa "Poder adquisitivo".
+    cluster_layer_js = layer_cluster.get_name() if layer_cluster else "null"
+    script = f"""
+    (function() {{
+        var mapName = "{m.get_name()}";
+        var powerName = "{layer_power.get_name()}";
+        var clusterName = {('"' + layer_cluster.get_name() + '"') if layer_cluster else 'null'};
+
+        function getLegendEl() {{
+            var legends = document.getElementsByClassName('legend');
+            if (!legends || legends.length === 0) return null;
+            return legends[0];
+        }}
+
+        function sameLayer(a, b) {{
+            return !!(a && b && a._leaflet_id === b._leaflet_id);
+        }}
+
+        function initWhenReady() {{
+            var mapObj = window[mapName];
+            var powerLayer = window[powerName];
+            var clusterLayer = clusterName ? window[clusterName] : null;
+
+            if (!mapObj || !powerLayer || (clusterName && !clusterLayer)) {{
+                return false;
+            }}
+
+            function isPowerCheckedInControl() {{
+                var labels = document.querySelectorAll('.leaflet-control-layers-overlays label');
+                for (var i = 0; i < labels.length; i++) {{
+                    var label = labels[i];
+                    var input = label.querySelector('input');
+                    var text = (label.textContent || '').trim();
+                    if (text.indexOf('Poder adquisitivo') !== -1) {{
+                        return !!(input && input.checked);
+                    }}
+                }}
+                return mapObj.hasLayer(powerLayer);
+            }}
+
+            function syncLegend() {{
+                var legend = getLegendEl();
+                if (!legend) return;
+                legend.style.display = isPowerCheckedInControl() ? 'block' : 'none';
+            }}
+
+            function setupThemeRadios() {{
+                var labels = document.querySelectorAll('.leaflet-control-layers-overlays label');
+                var powerInput = null;
+                var clusterInput = null;
+
+                for (var i = 0; i < labels.length; i++) {{
+                    var label = labels[i];
+                    var input = label.querySelector('input[type="checkbox"]');
+                    var text = (label.textContent || '').trim();
+                    if (!input) continue;
+
+                    if (text.indexOf('Poder adquisitivo') !== -1) {{
+                        input.type = 'radio';
+                        input.name = 'tema-mapa';
+                        powerInput = input;
+                    }} else if (text.indexOf('Cluster KMeans') !== -1) {{
+                        input.type = 'radio';
+                        input.name = 'tema-mapa';
+                        clusterInput = input;
+                    }}
+                }}
+
+                if (powerInput && clusterInput) {{
+                    if (!mapObj.hasLayer(powerLayer) && !mapObj.hasLayer(clusterLayer)) {{
+                        mapObj.addLayer(powerLayer);
+                    }}
+                }}
+            }}
+
+            mapObj.on('overlayadd', function(e) {{
+                if (clusterLayer && sameLayer(e.layer, powerLayer) && mapObj.hasLayer(clusterLayer)) {{
+                    mapObj.removeLayer(clusterLayer);
+                }}
+                if (clusterLayer && sameLayer(e.layer, clusterLayer) && mapObj.hasLayer(powerLayer)) {{
+                    mapObj.removeLayer(powerLayer);
+                }}
+                syncLegend();
+            }});
+
+            mapObj.on('overlayremove', function() {{
+                // Evita que el usuario deje sin capa tematica activa.
+                if (!mapObj.hasLayer(powerLayer) && (!clusterLayer || !mapObj.hasLayer(clusterLayer))) {{
+                    mapObj.addLayer(powerLayer);
+                }}
+                syncLegend();
+            }});
+
+            setupThemeRadios();
+            setTimeout(syncLegend, 0);
+            return true;
+        }}
+
+        var tries = 0;
+        var timer = setInterval(function() {{
+            if (initWhenReady() || tries > 40) {{
+                clearInterval(timer);
+            }}
+            tries += 1;
+        }}, 50);
+    }})();
+    """
+    m.get_root().script.add_child(Element(script))
+
+    title_html = """
+    <div style="
+        position: fixed;
+        top: 12px;
+        left: 60px;
+        z-index: 9999;
+        background: rgba(255, 255, 255, 0.90);
+        padding: 8px 12px;
+        border: 1px solid #cccccc;
+        border-radius: 6px;
+        font-size: 18px;
+        font-weight: 700;
+    ">
+        NYC GeoCore
     </div>
     """
-    mapa.get_root().html.add_child(folium.Element(titulo_html))
-    
-    minimap = plugins.MiniMap(toggle_display=True)
-    mapa.add_child(minimap)
-    
-    plugins.Fullscreen(
-        position="topleft",
-        title="Pantalla completa",
-        title_cancel="Salir de pantalla completa",
-        force_separate_button=True
-    ).add_to(mapa)
-    
-    print("✓ Mapa coroplético creado")
-    
-    return mapa
+    m.get_root().html.add_child(Element(title_html))
 
-
-# ==============================================================================
-# PASO 12: AGREGAR CAPAS ADICIONALES (BONUS)
-# ==============================================================================
-
-def agregar_capas_adicionales(mapa: folium.Map, gdf: gpd.GeoDataFrame) -> folium.Map:
+    blue_point_legend = """
+    <div style="
+        position: fixed;
+        bottom: 16px;
+        left: 12px;
+        z-index: 9999;
+        background: rgba(255, 255, 255, 0.90);
+        padding: 6px 8px;
+        border: 1px solid #cccccc;
+        border-radius: 5px;
+        font-size: 12px;
+    ">
+        <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#5dade2;margin-right:6px;"></span>
+        Restaurantes (puntos)
+    </div>
     """
-    Agrega capas adicionales opcionales al mapa.
-    """
-    print("\n" + "=" * 60)
-    print("PASO 12 (BONUS): Agregando capas adicionales...")
-    print("=" * 60)
-    
-    aeropuertos = folium.FeatureGroup(name="Aeropuertos")
-    
-    aeropuertos_data = [
-        {"nombre": "JFK International", "lat": 40.6413, "lon": -73.7781, "zona": 132},
-        {"nombre": "LaGuardia", "lat": 40.7769, "lon": -73.8740, "zona": 138},
-        {"nombre": "Newark (EWR)", "lat": 40.6895, "lon": -74.1745, "zona": 1},
-    ]
-    
-    for aeropuerto in aeropuertos_data:
-        folium.Marker(
-            location=[aeropuerto["lat"], aeropuerto["lon"]],
-            popup=f"<b>{aeropuerto['nombre']}</b><br>Zone ID: {aeropuerto['zona']}",
-            icon=folium.Icon(color="red", icon="plane", prefix="fa"),
-            tooltip=aeropuerto["nombre"]
-        ).add_to(aeropuertos)
-    
-    aeropuertos.add_to(mapa)
-    
-    top_zonas = folium.FeatureGroup(name="Top 10 Poder Adquisitivo")
-    
-    top_10 = gdf.nlargest(10, "poder_adquisitivo_normalizado")
-    
-    for _, row in top_10.iterrows():
-        centroid = row.geometry.centroid
+    m.get_root().html.add_child(Element(blue_point_legend))
+
+    return m
+
+
+def agregar_capa_restaurantes(m: folium.Map, gdf_rest: Optional[gpd.GeoDataFrame]) -> folium.Map:
+    if gdf_rest is None or gdf_rest.empty:
+        return m
+
+    fg = folium.FeatureGroup(name="Restaurantes", show=False)
+    for _, row in gdf_rest.iterrows():
+        rating = row.get("rating", None)
+        price_cat = row.get("price_category", None)
+
+        # Paleta mas clara: color por rating, tamano por categoria de precio.
+        if rating is None:
+            marker_color = "#5dade2"
+        elif rating >= 4.7:
+            marker_color = "#1f78b4"
+        elif rating >= 4.4:
+            marker_color = "#5dade2"
+        else:
+            marker_color = "#a6cee3"
+
+        radius = 4.0
+        if price_cat is not None:
+            try:
+                p = float(price_cat)
+                radius = 3.0 + min(max(p, 1.0), 4.0)
+            except Exception:
+                pass
+
+        popup_parts = [f"Rating: {row.get('rating', 'N/A')}"]
+        if price_cat is not None:
+            popup_parts.append(f"Categoria precio: {price_cat}")
+        if "name" in row and row["name"] is not None:
+            popup_parts.insert(0, f"Nombre: {row['name']}")
+        elif "restaurant" in row and row["restaurant"] is not None:
+            popup_parts.insert(0, f"Restaurante: {row['restaurant']}")
+        elif "nombre" in row and row["nombre"] is not None:
+            popup_parts.insert(0, f"Nombre: {row['nombre']}")
+
         folium.CircleMarker(
-            location=[centroid.y, centroid.x],
-            radius=10,
-            popup=f"<b>{row.get('zone', 'N/A')}</b><br>"
-                  f"Poder Adquisitivo: {row['poder_adquisitivo_normalizado']:.1f}",
-            color="gold",
+            location=[row["lat"], row["lon"]],
+            radius=radius,
+            color=marker_color,
             fill=True,
-            fillColor="gold",
-            fillOpacity=0.8,
-            tooltip=f"Top: {row.get('zone', 'Top Zone')}"
-        ).add_to(top_zonas)
-    
-    top_zonas.add_to(mapa)
-    folium.LayerControl(collapsed=False).add_to(mapa)
-    
-    print("✓ Capas adicionales añadidas")
-    
-    return mapa
+            fillColor=marker_color,
+            fillOpacity=0.92,
+            weight=1.0,
+            popup="<br>".join(popup_parts),
+        ).add_to(fg)
+
+    fg.add_to(m)
+    return m
 
 
-# ==============================================================================
-# PASO 13: GUARDAR MAPA HTML
-# ==============================================================================
+# -----------------------------------------------------------------------------
+# Save outputs
+# -----------------------------------------------------------------------------
+def guardar_outputs(df_final: DataFrame, mapa: folium.Map) -> None:
+    output_data_dir_abs = resolve_project_path(str(OUTPUT_DATA_DIR))
+    output_map_dir_abs = resolve_project_path(str(OUTPUT_MAP_DIR))
+    output_parquet_abs = resolve_project_path(str(OUTPUT_PARQUET))
+    output_html_abs = resolve_project_path(str(OUTPUT_HTML))
 
-def guardar_mapa(mapa: folium.Map, output_path: str):
-    """
-    Guarda el mapa como archivo HTML.
-    """
-    print("\n" + "=" * 60)
-    print("PASO 13: Guardando mapa...")
-    print("=" * 60)
-    
-    mapa.save(output_path)
-    
-    file_size = os.path.getsize(output_path) / (1024 * 1024)
-    
-    print(f"✓ Mapa guardado: {output_path}")
-    print(f"✓ Tamaño: {file_size:.2f} MB")
-    print(f"\nAbre el archivo en un navegador para visualizar el mapa interactivo")
+    output_data_dir_abs.mkdir(parents=True, exist_ok=True)
+    output_map_dir_abs.mkdir(parents=True, exist_ok=True)
+
+    # Si existe como carpeta (resto de una escritura Spark anterior), la borramos.
+    if output_parquet_abs.exists():
+        if output_parquet_abs.is_dir():
+            shutil.rmtree(output_parquet_abs)
+        else:
+            output_parquet_abs.unlink()
+
+    # Guardamos usando Pandas para evitar el error de "NativeIO" en Windows
+  
+    pdf_final = df_final.toPandas()
+    tmp_parquet = output_parquet_abs.with_suffix(".tmp.parquet")
+    if tmp_parquet.exists():
+        tmp_parquet.unlink()
+
+    pdf_final.to_parquet(str(tmp_parquet), index=False, engine="pyarrow")
+    tmp_parquet.replace(output_parquet_abs)
+    logger.info("Dataset agregado guardado localmente en: %s", output_parquet_abs)
+
+    mapa.save(str(output_html_abs))
+    logger.info("Mapa interactivo guardado en: %s", output_html_abs)
 
 
-# ==============================================================================
-# FUNCIÓN PRINCIPAL
-# ==============================================================================
-
-def main():
-    """
-    Función principal que orquesta todo el pipeline de análisis.
-    """
-    print("\n" + "=" * 80)
-    print("  ANÁLISIS DE PODER ADQUISITIVO POR ZONA - NYC TAXI DATA 2023")
-    print("=" * 80)
-    
+# -----------------------------------------------------------------------------
+# Main
+# -----------------------------------------------------------------------------
+def main() -> None:
+    spark = None
     try:
+        logger.info("=== Inicio pipeline NYC Taxi + FHV ===")
         spark = crear_spark_session()
-        df_taxi = cargar_datos_taxi(spark)
-        df_fhv = cargar_datos_fhv(spark)
-        df_unificado = unificar_datos(df_taxi, df_fhv)
-        df_metricas = calcular_metricas_por_zona(df_unificado)
-        df_poder = calcular_poder_adquisitivo(df_metricas)
-        df_pandas = convertir_a_pandas(df_poder)
-        gdf_zonas = descargar_shapefile_zonas()
-        gdf_merged = hacer_join_espacial(gdf_zonas, df_pandas)
-        mapa = crear_mapa_coropletico(gdf_merged)
-        mapa = agregar_capas_adicionales(mapa, gdf_merged)
-        guardar_mapa(mapa, OUTPUT_FILE)
-        
-        spark.stop()
-        print("\n✅ Sesión de Spark cerrada")
-        
-        print("\n" + "=" * 80)
-        print("  ✅ ANÁLISIS COMPLETADO EXITOSAMENTE")
-        print("=" * 80)
-        
-        print(f"""
-RESUMEN DEL ANÁLISIS:
-────────────────────────────────────────────────────────────
-  - Zonas analizadas: {len(gdf_merged)}
-  - Total de viajes procesados: {df_pandas['volumen_viajes'].sum():,.0f}
-  - Propina media global: ${df_pandas['propina_media'].mean():.2f}
 
-TOP 5 ZONAS POR PODER ADQUISITIVO:
-""")
-        
-        top5 = gdf_merged.nlargest(5, "poder_adquisitivo_normalizado")[
-            ["zone", "borough", "poder_adquisitivo_normalizado", "volumen_viajes"]
+        taxi_raw = cargar_parquet_con_fallback(spark, "taxi")
+        fhv_raw = cargar_parquet_con_fallback(spark, "fhv")
+        gdf_zonas = cargar_zonas_gdf()
+
+        taxi_agg = preparar_taxi(taxi_raw)
+        fhv_agg = preparar_fhv(fhv_raw)
+        metricas = combinar_metricas(taxi_agg, fhv_agg)
+
+        alquiler_agg = cargar_alquiler_por_zona_spark(spark, gdf_zonas)
+        metricas = incorporar_alquiler_metricas(metricas, alquiler_agg)
+
+        metricas = calcular_indice_poder_adquisitivo(metricas)
+
+        # Bonus clustering
+        metricas, model = aplicar_kmeans(metricas, k=6)
+        logger.info("KMeans entrenado. K=%s", model.getK())
+
+        # Solo al final pasamos a pandas/geopandas para mapa
+        pdf = metricas.toPandas()
+        gdf_metricas = gpd.GeoDataFrame(pdf)
+
+        gdf_merged = gdf_zonas.merge(gdf_metricas, on="LocationID", how="left")
+
+        # Fill para zonas sin viajes
+        fill_cols = [
+            "tip_amount_avg", "passenger_count_avg", "taxi_trip_count", "fhv_trip_count", 
+            "volumen_viajes", "alquiler_medio", "alquiler_mediano", "alquiler_count",
+            "tip_norm", "passenger_norm", "volumen_norm", "alquiler_norm",
+            "poder_adquisitivo", "poder_adquisitivo_0_100"
         ]
-        print(top5.to_string(index=False))
-        
-        print(f"""
-────────────────────────────────────────────────────────────
-Archivo generado: {OUTPUT_FILE}
-────────────────────────────────────────────────────────────
-""")
-        
-        return gdf_merged
-        
+        for c in fill_cols:
+            if c in gdf_merged.columns:
+                gdf_merged[c] = gdf_merged[c].fillna(0)
+
+        if "cluster" in gdf_merged.columns:
+            gdf_merged["cluster"] = gdf_merged["cluster"].fillna(-1)
+        if "cluster_label" in gdf_merged.columns:
+            gdf_merged["cluster_label"] = gdf_merged["cluster_label"].fillna("Sin datos")
+
+        m = crear_mapa(gdf_merged, usar_cluster=True)
+
+        # Capa extra opcional restaurantes
+        gdf_rest = cargar_restaurantes_filtrados(spark, gdf_zonas=gdf_zonas)
+        m = agregar_capa_restaurantes(m, gdf_rest)
+
+        # LayerControl al final para incluir tambien restaurantes.
+        folium.LayerControl(collapsed=False).add_to(m)
+
+        # Guardar parquet final y mapa HTML
+        guardar_outputs(metricas, m)
+
+        logger.info("=== Pipeline finalizado OK ===")
     except Exception as e:
-        print(f"\n❌ Error durante la ejecución: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception("Error en el pipeline: %s", e)
         raise
+    finally:
+        if spark is not None:
+            try:
+                spark.stop()
+                logger.info("Spark detenido.")
+            except Exception as stop_err:
+                logger.warning("No se pudo detener Spark limpiamente: %s", stop_err)
 
 
 if __name__ == "__main__":
-    resultado = main()
+    main()
+    
