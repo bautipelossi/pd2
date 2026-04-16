@@ -14,7 +14,7 @@ import numpy as np
 # --------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[2]
 DATA_DIR = BASE_DIR / "Entrega1_Pd2" / "datos" / "limpios"
-OUT_DIR = Path(__file__).resolve().parents[1] / "04_Visualizaciones"
+OUT_DIR = Path(__file__).resolve().parents[1] / "Visualizacion" / "Patrones_Demanda"
 
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -383,22 +383,25 @@ def map_local(demanda, DATA_DIR, OUT_DIR):
 
     mapa.save(OUT_DIR / "mapa_por_zona.html")
 
-def clustering_analysis(df, DATA_DIR, OUT_DIR, k=5):
+def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
     print("Iniciando clustering...")
 
     # --------------------------------------------------
     # MATRIZ
     # --------------------------------------------------
-    matriz = (
-        df.groupby(["pulocationid", "hora"])
-        .size()
-        .unstack(fill_value=0)
-    )
+    matriz = demanda.pivot(
+        index="pulocationid",
+        columns="hora",
+        values="demanda"
+    ).fillna(0)
 
     # --------------------------------------------------
     # NORMALIZACIÓN
     # --------------------------------------------------
-    X = matriz.div(matriz.sum(axis=1), axis=0).fillna(0)
+    X = np.log1p(matriz)
+
+    X = X.sub(X.mean(axis=1), axis=0)
+    X = X.div(X.std(axis=1), axis=0).fillna(0)
 
     # --------------------------------------------------
     # KMEANS
@@ -484,6 +487,7 @@ def clustering_analysis(df, DATA_DIR, OUT_DIR, k=5):
             continue
 
         cluster = int(row["cluster"])
+        label = cluster_labels[cluster]
 
         folium.GeoJson(
             row["geometry"],
@@ -493,7 +497,7 @@ def clustering_analysis(df, DATA_DIR, OUT_DIR, k=5):
                 "weight": 0.4,
                 "fillOpacity": 0.7
             },
-            tooltip=f"{row.get('zone','Zona')} ({row.get('borough','')})<br>{cluster_labels[c]}"
+            tooltip=f"{row.get('zone','Zona')} ({row.get('borough','')})<br>{label}"
         ).add_to(mapa)
 
     # --------------------------------------------------
@@ -501,7 +505,8 @@ def clustering_analysis(df, DATA_DIR, OUT_DIR, k=5):
     # --------------------------------------------------
     legend_html = """
     <div style="
-    position: fixed;
+    position: absolute;
+    z-index: 9999;
     bottom: 40px;
     right: 40px;
     width: 260px;
