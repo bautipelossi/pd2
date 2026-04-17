@@ -37,8 +37,8 @@ os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
 MINIO_CONFIG: Dict[str, str] = {
     "endpoint": os.getenv("MINIO_ENDPOINT", "https://minio.fdi.ucm.es"),
-    "access_key": os.getenv("MINIO_ACCESS_KEY", "llcNNHgOBCdDA95Q1sma"),
-    "secret_key": os.getenv("MINIO_SECRET_KEY", "jEtVGZry2V12u1VO22tYBqcUnua3U4W2s7NbOR2Z"),
+    "access_key": os.getenv("MINIO_ACCESS_KEY", ""),
+    "secret_key": os.getenv("MINIO_SECRET_KEY", ""),
     "path_style": os.getenv("MINIO_PATH_STYLE", "true"),
 }
 
