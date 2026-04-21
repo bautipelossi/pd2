@@ -6,7 +6,7 @@ from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from dotenv import load_dotenv
 
-# Cargar variables de entorno por si tienes las credenciales de MinIO ahí
+# Cargar variables de entorno
 load_dotenv()
 
 def create_spark_session():
@@ -18,21 +18,50 @@ def create_spark_session():
     return spark
 
 def intentar_descargar_minio(ruta_local, bucket, object_name):
-    """Intenta descargar el archivo de MinIO sobrescribiendo el local. Si falla, usa el local."""
-    print(f"☁️ Intentando cargar de MinIO (limpios/): {ruta_local.name}")
+    """Descarga de MinIO SOLO si el archivo local no existe o está vacío."""
+    
+    # 1. Comprobación Inteligente (Caché Local)
+    if ruta_local.exists() and ruta_local.stat().st_size > 1000: # Si existe y pesa más de 1KB
+        print(f" ¡Caché local detectada! Usando archivo existente: {ruta_local.name}")
+        return # Salimos de la función sin tocar MinIO
+
+    # 2. Si no existe, procedemos con la descarga
+    print(f" Archivo no encontrado en local. Descargando de MinIO: {ruta_local.name} ...")
     try:
-        # Ajusta estas credenciales/endpoint según tu configuración real de MinIO
         s3 = boto3.client('s3',
             endpoint_url=os.getenv('MINIO_ENDPOINT', 'http://127.0.0.1:9000'),
             aws_access_key_id=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
             aws_secret_access_key=os.getenv('MINIO_SECRET_KEY', 'minioadmin')
         )
-        # Crear carpeta base si no existe
         ruta_local.parent.mkdir(parents=True, exist_ok=True)
         s3.download_file(bucket, object_name, str(ruta_local))
         print(f" {ruta_local.name} descargado de MinIO exitosamente.")
     except Exception as e:
-        print(f" Falló MinIO. Se usará el archivo local si existe.")
+        print(f" Falló la descarga de MinIO ({e}). Verifica tu conexión o si el archivo existe en el bucket.")
+        # Si llegamos aquí y no hay archivo local, Spark fallará más adelante, 
+        # pero es el comportamiento correcto: no podemos inventarnos los datos.
+
+def subir_carpeta_minio(ruta_carpeta_local, bucket, prefijo_s3):
+    """Sube una carpeta entera generada por Spark (Parquet) a MinIO."""
+    print(f" Sincronizando con MinIO: subiendo a s3://{bucket}/{prefijo_s3} ...")
+    try:
+        s3 = boto3.client('s3',
+            endpoint_url=os.getenv('MINIO_ENDPOINT', 'http://127.0.0.1:9000'),
+            aws_access_key_id=os.getenv('MINIO_ACCESS_KEY', 'minioadmin'),
+            aws_secret_access_key=os.getenv('MINIO_SECRET_KEY', 'minioadmin')
+        )
+        # Recorremos todos los archivos de las particiones dentro de la carpeta Parquet
+        for root, dirs, files in os.walk(ruta_carpeta_local):
+            for file in files:
+                local_path = os.path.join(root, file)
+                # Ruta relativa para que dentro del bucket quede bien ordenado
+                relative_path = os.path.relpath(local_path, ruta_carpeta_local)
+                s3_key = f"{prefijo_s3}/{relative_path}".replace("\\", "/") # Asegurar barras en MinIO
+                
+                s3.upload_file(local_path, bucket, s3_key)
+        print(" Subida a MinIO completada con éxito.")
+    except Exception as e:
+        print(f" Error al subir a MinIO: {e}")
 
 def generar_target_rentabilidad():
     spark = create_spark_session()
@@ -59,6 +88,7 @@ def generar_target_rentabilidad():
 
     print(" Procesando Vehículos FHV (Ubers/Lyfts)...")
     df_fhv = spark.read.parquet(str(ruta_fhv))
+    
     # Comprobamos si el FHV tiene dinero (normalmente no, así que ponemos Nulo si falta)
     if "total_amount" in [c.lower() for c in df_fhv.columns]:
         fhv_amount = F.col("total_amount")
@@ -107,11 +137,13 @@ def generar_target_rentabilidad():
         F.count("*").alias("viajes_historicos")
     ).filter(F.col("rentabilidad_score").isNotNull()) # Quitamos zonas que solo tuvieron Ubers y no sabemos su profit
 
-    # Guardar el nuevo Dataset
+    # --- 5. GUARDAR Y SUBIR A MINIO ---
     ruta_salida = base_dir / "rentabilidad_historica_fase2.parquet"
     df_rentabilidad.write.mode("overwrite").parquet(str(ruta_salida))
+    print(f" Dataset local guardado en: {ruta_salida}")
     
-    print(f" ¡ÉXITO! Dataset de rentabilidad guardado en: {ruta_salida}")
+    # Subimos a la nube
+    subir_carpeta_minio(ruta_salida, "pd2", "taxomanos/limpios/rentabilidad_historica_fase2.parquet")
     
     print("\n TOP 5 Zonas/Horas más rentables de NYC ($/min) (Mín. 50 viajes):")
     df_rentabilidad.filter(F.col("viajes_historicos") > 50).orderBy(F.desc("rentabilidad_score")).show(5)
