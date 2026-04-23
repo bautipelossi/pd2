@@ -5,6 +5,7 @@ from pathlib import Path
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from dotenv import load_dotenv
+import pandas as pd
 
 # Cargar variables de entorno
 load_dotenv()
@@ -21,9 +22,54 @@ def create_spark_session():
     spark = SparkSession.builder \
         .appName("Mega_Cruce_Fase2") \
         .config("spark.local.dir", temp_dir) \
+        .config("spark.hadoop.io.native.lib.available", "false") \
         .getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     return spark
+
+
+def guardar_parquet_con_fallback(df_spark, ruta_salida: Path):
+    try:
+        df_spark.write.mode("overwrite").parquet(str(ruta_salida))
+        return
+    except Exception as exc:
+        msg = str(exc)
+        if "NativeIO$Windows.access0" not in msg and "UnsatisfiedLinkError" not in msg:
+            raise
+        print(" Fallback: error nativo de Hadoop en Windows al escribir parquet con Spark.")
+
+    if ruta_salida.exists():
+        if ruta_salida.is_dir():
+            import shutil
+            shutil.rmtree(ruta_salida)
+        else:
+            ruta_salida.unlink()
+
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
+    pdf = df_spark.toPandas()
+    pdf.to_parquet(str(ruta_salida), index=False)
+    print(f" Guardado con fallback local en: {ruta_salida}")
+
+
+def cargar_parquet_con_fallback(spark, ruta_entrada: Path, etiqueta: str):
+    try:
+        return spark.read.parquet(str(ruta_entrada))
+    except Exception as exc:
+        msg = str(exc)
+        if "NativeIO$Windows.access0" not in msg and "UnsatisfiedLinkError" not in msg:
+            raise
+        print(f" Fallback: error nativo de Hadoop al leer {etiqueta} con Spark. Intentando con pandas...")
+
+    if ruta_entrada.is_dir():
+        archivos_parquet = sorted(str(p) for p in ruta_entrada.glob("*.parquet"))
+        if not archivos_parquet:
+            raise FileNotFoundError(f"No se encontraron archivos parquet válidos en {ruta_entrada}")
+        pdf = pd.read_parquet(archivos_parquet)
+    else:
+        pdf = pd.read_parquet(str(ruta_entrada))
+    df_spark = spark.createDataFrame(pdf)
+    print(f" {etiqueta} cargado con fallback pandas->Spark ({len(pdf)} filas).")
+    return df_spark
 
 def intentar_descargar_minio(ruta_local, bucket, object_name):
     """Descarga de MinIO SOLO si el archivo local no existe o está vacío."""
@@ -79,8 +125,8 @@ def cruzar_y_limpiar():
 
     try:
         # 3. CARGA DE DATOS
-        df_renta = spark.read.parquet(str(ruta_renta))
-        df_demanda = spark.read.parquet(str(ruta_demanda))
+        df_renta = cargar_parquet_con_fallback(spark, ruta_renta, "rentabilidad_historica_fase2")
+        df_demanda = cargar_parquet_con_fallback(spark, ruta_demanda, "demandas_base_fase2")
 
         # 4. EL CRUCE (JOIN)
         print(" Uniendo rentabilidad real con demanda predicha...")
@@ -100,7 +146,7 @@ def cruzar_y_limpiar():
         print(f" Limpieza completada: {conteo_antes - conteo_despues} filas eliminadas.")
 
         # 6. GUARDADO LOCAL
-        df_final.write.mode("overwrite").parquet(str(ruta_salida))
+        guardar_parquet_con_fallback(df_final, ruta_salida)
         print(f" Dataset guardado localmente en: {ruta_salida}")
 
         # 7. SINCRONIZACIÓN DE SALIDA

@@ -5,6 +5,7 @@ from pathlib import Path
 from pyspark.sql import SparkSession
 import pyspark.sql.functions as F
 from dotenv import load_dotenv
+import pandas as pd
 
 # Cargar variables de entorno
 load_dotenv()
@@ -13,17 +14,44 @@ def create_spark_session():
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
     os.environ['HADOOP_HOME'] = "C:/hadoop"
-    spark = SparkSession.builder.appName("Calculo_Rentabilidad_Fase2").getOrCreate()
+    spark = (
+        SparkSession.builder.appName("Calculo_Rentabilidad_Fase2")
+        .config("spark.hadoop.io.native.lib.available", "false")
+        .getOrCreate()
+    )
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 
+
+def guardar_parquet_con_fallback(df_spark, ruta_salida: Path):
+    try:
+        df_spark.write.mode("overwrite").parquet(str(ruta_salida))
+        return
+    except Exception as exc:
+        msg = str(exc)
+        if "NativeIO$Windows.access0" not in msg and "UnsatisfiedLinkError" not in msg:
+            raise
+        print(" Fallback: error nativo de Hadoop en Windows al escribir parquet con Spark.")
+
+    if ruta_salida.exists():
+        if ruta_salida.is_dir():
+            import shutil
+            shutil.rmtree(ruta_salida)
+        else:
+            ruta_salida.unlink()
+
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
+    pdf = df_spark.toPandas()
+    pdf.to_parquet(str(ruta_salida), index=False)
+    print(f" Guardado con fallback local en: {ruta_salida}")
+
 def intentar_descargar_minio(ruta_local, bucket, object_name):
     """Descarga de MinIO SOLO si el archivo local no existe o está vacío."""
-    
-    # 1. Comprobación Inteligente (Caché Local)
-    if ruta_local.exists() and ruta_local.stat().st_size > 1000: # Si existe y pesa más de 1KB
+
+    # 1. Comprobación inteligente (soporta parquet como carpeta)
+    if ruta_local.exists() and (ruta_local.is_dir() or ruta_local.stat().st_size > 1000):
         print(f" ¡Caché local detectada! Usando archivo existente: {ruta_local.name}")
-        return # Salimos de la función sin tocar MinIO
+        return
 
     # 2. Si no existe, procedemos con la descarga
     print(f" Archivo no encontrado en local. Descargando de MinIO: {ruta_local.name} ...")
@@ -139,7 +167,7 @@ def generar_target_rentabilidad():
 
     # --- 5. GUARDAR Y SUBIR A MINIO ---
     ruta_salida = base_dir / "rentabilidad_historica_fase2.parquet"
-    df_rentabilidad.write.mode("overwrite").parquet(str(ruta_salida))
+    guardar_parquet_con_fallback(df_rentabilidad, ruta_salida)
     print(f" Dataset local guardado en: {ruta_salida}")
     
     # Subimos a la nube
