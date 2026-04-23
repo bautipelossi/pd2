@@ -5,6 +5,7 @@ from pathlib import Path
 from pyspark.sql import SparkSession, Row
 from pyspark.ml import PipelineModel
 from dotenv import load_dotenv
+import pandas as pd
 
 # Cargar credenciales de MinIO
 load_dotenv()
@@ -21,10 +22,34 @@ def create_spark_session():
     spark = SparkSession.builder \
         .appName("Exportador_Fase2_MinIO") \
         .config("spark.local.dir", temp_dir) \
+        .config("spark.hadoop.io.native.lib.available", "false") \
         .getOrCreate()
     
     spark.sparkContext.setLogLevel("ERROR")
     return spark
+
+
+def guardar_parquet_con_fallback(df_spark, ruta_salida: Path):
+    try:
+        df_spark.write.mode("overwrite").parquet(str(ruta_salida))
+        return
+    except Exception as exc:
+        msg = str(exc)
+        if "NativeIO$Windows.access0" not in msg and "UnsatisfiedLinkError" not in msg:
+            raise
+        print(" Fallback: error nativo de Hadoop en Windows al escribir parquet con Spark.")
+
+    if ruta_salida.exists():
+        if ruta_salida.is_dir():
+            import shutil
+            shutil.rmtree(ruta_salida)
+        else:
+            ruta_salida.unlink()
+
+    ruta_salida.parent.mkdir(parents=True, exist_ok=True)
+    pdf = df_spark.toPandas()
+    pdf.to_parquet(str(ruta_salida), index=False)
+    print(f" Guardado con fallback local en: {ruta_salida}")
 
 def intentar_descargar_minio(ruta_local, bucket, object_name):
     """Descarga de MinIO SOLO si el archivo local no existe o está vacío."""
@@ -64,14 +89,29 @@ def subir_carpeta_minio(ruta_carpeta_local, bucket, prefijo_s3):
     except Exception as e:
         print(f" Error al subir a MinIO: {e}")
 
+
+def resolver_ruta_modelo() -> Path:
+    candidates = [
+        Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda",
+        Path(__file__).resolve().parents[1] / "03_Modelos" / "modelos" / "mejor_modelo_demanda",
+    ]
+
+    for p in candidates:
+        if p.exists():
+            return p
+
+    raise FileNotFoundError(
+        "No se encontró el modelo de demanda entrenado. "
+        "Rutas esperadas: " + ", ".join(str(p) for p in candidates)
+    )
+
 def exportar_predicciones_base():
     # 1. RUTAS
     base_dir = Path(__file__).resolve().parents[2] / "datos" / "limpios"
     ruta_resumen = base_dir / "resumen_zona_hora.parquet"
     ruta_salida = base_dir / "demandas_base_fase2.parquet"
     
-    # El modelo vive en src/modelos
-    ruta_modelo = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
+    ruta_modelo = str(resolver_ruta_modelo())
 
     # 2. SINCRONIZAR ENTRADA
     intentar_descargar_minio(ruta_resumen, "pd2", "taxomanos/limpios/resumen_zona_hora.parquet")
@@ -105,7 +145,7 @@ def exportar_predicciones_base():
             "pulocationid", "day_of_week", "pickup_hour", "prediction"
         ).withColumnRenamed("prediction", "demanda_predicha")
 
-        df_final.write.mode("overwrite").parquet(str(ruta_salida))
+        guardar_parquet_con_fallback(df_final, ruta_salida)
         print(f" Guardado local en: {ruta_salida}")
 
         # 6. SINCRONIZAR SALIDA

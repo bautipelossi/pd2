@@ -1,110 +1,338 @@
-import os
-import pandas as pd
-import numpy as np
+from pathlib import Path
+
 import joblib
-
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import ExtraTreesRegressor, HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import KFold, RandomizedSearchCV, train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import Ridge
 
 # ==========================
-# CONFIG
+# CONFIG FASE 2
 # ==========================
 
-DATA_PATH = "datos/limpios/dataset_model.parquet"
-MODEL_PATH = "src/05_despliegue/models/rf_model.pkl"
-TARGET_COL = "income_rate"
+RENTA_PATH = Path("datos/limpios/rentabilidad_historica_fase2.parquet")
+DEMANDA_PATH = Path("datos/limpios/demandas_base_fase2.parquet")
+DATASET_FINAL_PATH = Path("datos/limpios/dataset_entrenamiento_final_fase2.parquet")
+TRAFICO_PATH = Path("datos/limpios/dataset_trafico_vis_ready.parquet")
+TAXI_ZONES_SHP = Path("datos/limpios/taxi_zones.shp")
 
-# ==========================
-# LOAD DATA
-# ==========================
+MODEL_PATH = Path("src/07_despliegue/models/rf_model_fase2.pkl")
+TRAIN_PATH = Path("datos/limpios/data_train_fase2.parquet")
+TEST_PATH = Path("datos/limpios/data_test_fase2.parquet")
 
-print("📦 Cargando dataset...")
-df = pd.read_parquet(DATA_PATH)
+TARGET_COL = "rentabilidad_score"
+JOIN_KEYS = ["pulocationid", "day_of_week", "pickup_hour"]
+TEST_SIZE = 0.2
+SEED = 42
+CV_FOLDS = 5
 
-print("Shape inicial:", df.shape)
-print(df.head())
+DAY_MAP_EN = {
+    "monday": 1,
+    "tuesday": 2,
+    "wednesday": 3,
+    "thursday": 4,
+    "friday": 5,
+    "saturday": 6,
+    "sunday": 7,
+}
 
-# ==========================
-# LIMPIEZA BÁSICA
-# ==========================
+DAY_MAP_ES = {
+    "lunes": 1,
+    "martes": 2,
+    "miercoles": 3,
+    "miércoles": 3,
+    "jueves": 4,
+    "viernes": 5,
+    "sabado": 6,
+    "sábado": 6,
+    "domingo": 7,
+}
 
-print("🧹 Limpiando datos...")
 
-df = df.dropna()
+def leer_parquet_robusto(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        raise FileNotFoundError(f"No existe: {path}")
+    if path.is_dir():
+        archivos = sorted(path.glob("*.parquet"))
+        if not archivos:
+            raise FileNotFoundError(f"No hay .parquet válidos dentro de: {path}")
+        return pd.read_parquet([str(p) for p in archivos])
+    return pd.read_parquet(path)
 
-# evitar divisiones raras o outliers extremos
-df = df[df["income_rate"] > 0]
-df = df[df["income_rate"] < 50]  # límite razonable
 
-print("Shape después limpieza:", df.shape)
+def imprimir_metadata(nombre: str, path: Path, df: pd.DataFrame) -> None:
+    print("\n" + "=" * 80)
+    print(f"METADATA -> {nombre}")
+    print(f"Ruta: {path}")
+    print(f"Shape: {df.shape}")
+    print(f"Columnas: {list(df.columns)}")
+    print("Dtypes:", {c: str(t) for c, t in df.dtypes.items()})
+    nulls = df.isna().sum()
+    null_cols = {c: int(v) for c, v in nulls.items() if int(v) > 0}
+    print("Nulos:", null_cols if null_cols else "{}")
 
-if "traffic_norm" not in df.columns:
-    print("⚠️ traffic_norm no existe en el dataset. Se crea con 0.5 por defecto.")
-    df["traffic_norm"] = 0.5
 
-if "demand_score" not in df.columns:
-    print("⚠️ demand_score no existe en el dataset. Se crea con 0.0 por defecto.")
-    df["demand_score"] = 0.0
+def validar_columnas(df: pd.DataFrame, cols: list, nombre: str) -> None:
+    faltantes = [c for c in cols if c not in df.columns]
+    if faltantes:
+        raise ValueError(f"Faltan columnas en {nombre}: {faltantes}")
 
-if "zone" not in df.columns:
-    raise ValueError("Falta la columna zone para construir features por zona.")
 
-# ==========================
-# FEATURES
-# ==========================
+def normalizar_day_of_week(s: pd.Series) -> pd.Series:
+    if pd.api.types.is_numeric_dtype(s):
+        return s.astype("Int64")
+    norm = s.astype(str).str.strip().str.lower()
+    mapped = norm.map(DAY_MAP_EN).fillna(norm.map(DAY_MAP_ES))
+    return mapped.astype("Int64")
 
-print("⚙️ Construyendo features...")
 
-# ONE HOT ENCODING DE ZONA 🔥
-df = pd.get_dummies(df, columns=["zone"])
+def normalizar_borough(s: pd.Series) -> pd.Series:
+    return s.astype(str).str.strip().str.title()
 
-# features finales
-feature_cols = [col for col in df.columns if col != TARGET_COL]
 
-X = df[feature_cols]
-y = df[TARGET_COL]
+def construir_mapa_zona_borough(shp_path: Path) -> pd.DataFrame:
+    if not shp_path.exists():
+        raise FileNotFoundError(f"No existe shapefile de taxi zones: {shp_path}")
 
-print("Número de features:", X.shape[1])
+    try:
+        import geopandas as gpd
+    except ImportError as exc:
+        raise ImportError("Falta geopandas para mapear pulocationid -> borough") from exc
 
-traffic_unique = sorted(df["traffic_norm"].dropna().unique().tolist())
-print("Valores únicos traffic_norm (muestra):", traffic_unique[:10])
-if len(traffic_unique) == 1 and traffic_unique[0] == 0.5:
-    print("⚠️ traffic_norm quedó constante en 0.5. Revisa llaves del merge de tráfico.")
+    gdf = gpd.read_file(shp_path)
+    validar_columnas(gdf, ["LocationID", "borough"], "taxi_zones.shp")
+    df_map = gdf[["LocationID", "borough"]].copy()
+    df_map = df_map.rename(columns={"LocationID": "pulocationid"})
+    df_map["pulocationid"] = pd.to_numeric(df_map["pulocationid"], errors="coerce").astype("Int64")
+    df_map["borough"] = normalizar_borough(df_map["borough"])
+    return df_map.dropna(subset=["pulocationid"]).drop_duplicates("pulocationid")
 
-demand_unique = sorted(df["demand_score"].dropna().unique().tolist())
-print("Valores únicos demand_score (muestra):", demand_unique[:10])
-if len(demand_unique) == 1 and demand_unique[0] == 0.0:
-	print("⚠️ demand_score quedó constante en 0.0. Revisa la fuente/merge de demanda.")
 
-# ==========================
-# TRAIN / EVAL / SAVE
-# ==========================
+def preparar_trafico(df_trafico: pd.DataFrame) -> tuple[pd.DataFrame, list]:
+    df = df_trafico.copy()
+    validar_columnas(df, ["hora_entera", "Vol"], "dataset_trafico_vis_ready")
 
-print("🚂 Entrenando RandomForest...")
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=42
-)
+    df = df.rename(columns={"hora_entera": "pickup_hour", "Vol": "traffic_total"})
+    df["pickup_hour"] = pd.to_numeric(df["pickup_hour"], errors="coerce").astype("Int64")
 
-model = RandomForestRegressor(
-    n_estimators=300,
-    random_state=42,
-    n_jobs=-1,
-    min_samples_leaf=2,
-)
-model.fit(X_train, y_train)
+    if "dia_semana" in df.columns:
+        df["day_of_week"] = normalizar_day_of_week(df["dia_semana"])
+    elif "timestamp" in df.columns:
+        dt = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["day_of_week"] = dt.dt.dayofweek + 1
+    else:
+        df["day_of_week"] = pd.NA
 
-pred = model.predict(X_test)
+    if "Boro" in df.columns:
+        df["borough"] = normalizar_borough(df["Boro"])
+        join_keys = ["borough", "pickup_hour", "day_of_week"]
+        print("✅ Tráfico con borough detectado: se agrega por borough+hora+day_of_week.")
+    else:
+        join_keys = ["pickup_hour", "day_of_week"]
+        print("⚠️ Tráfico sin borough: se agrega por hora+day_of_week.")
 
-mae = mean_absolute_error(y_test, pred)
-rmse = np.sqrt(mean_squared_error(y_test, pred))
-r2 = r2_score(y_test, pred)
+    df = df.dropna(subset=join_keys + ["traffic_total"])
+    df = df.groupby(join_keys, as_index=False)["traffic_total"].mean()
 
-print("📈 Métricas")
-print(f"MAE : {mae:.4f}")
-print(f"RMSE: {rmse:.4f}")
-print(f"R²  : {r2:.4f}")
+    traffic_min = df["traffic_total"].min()
+    traffic_max = df["traffic_total"].max()
+    if pd.isna(traffic_min) or pd.isna(traffic_max) or traffic_max <= traffic_min:
+        df["traffic_norm"] = 0.5
+    else:
+        df["traffic_norm"] = (df["traffic_total"] - traffic_min) / (traffic_max - traffic_min)
 
-os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
-joblib.dump(model, MODEL_PATH)
-print(f"💾 Modelo guardado en: {MODEL_PATH}")
+    return df, join_keys
+
+
+def main():
+    print("📦 Cargando datasets Fase 2 obligatorios...")
+    df_renta = leer_parquet_robusto(RENTA_PATH)
+    df_demanda = leer_parquet_robusto(DEMANDA_PATH)
+    df_final = leer_parquet_robusto(DATASET_FINAL_PATH)
+    df_trafico_raw = leer_parquet_robusto(TRAFICO_PATH)
+
+    imprimir_metadata("rentabilidad_historica_fase2", RENTA_PATH, df_renta)
+    imprimir_metadata("demandas_base_fase2", DEMANDA_PATH, df_demanda)
+    imprimir_metadata("dataset_entrenamiento_final_fase2", DATASET_FINAL_PATH, df_final)
+    imprimir_metadata("dataset_trafico_vis_ready (trafico)", TRAFICO_PATH, df_trafico_raw)
+
+    validar_columnas(df_renta, JOIN_KEYS + [TARGET_COL], "rentabilidad_historica_fase2")
+    validar_columnas(df_demanda, JOIN_KEYS + ["demanda_predicha"], "demandas_base_fase2")
+    validar_columnas(df_final, JOIN_KEYS + [TARGET_COL, "demanda_predicha"], "dataset_entrenamiento_final_fase2")
+
+    print("\n🔗 Armando dataset base con rentabilidad + demanda...")
+    df_model = df_renta.merge(
+        df_demanda[JOIN_KEYS + ["demanda_predicha"]],
+        on=JOIN_KEYS,
+        how="inner",
+    )
+    print(f"Filas tras merge renta+demanda: {len(df_model)}")
+
+    print("🧪 Cruzando con dataset_entrenamiento_final_fase2 para usar los 3 artefactos...")
+    keys_final = df_final[JOIN_KEYS].drop_duplicates()
+    df_model = df_model.merge(keys_final, on=JOIN_KEYS, how="inner")
+    print(f"Filas en intersección de los 3 datasets: {len(df_model)}")
+
+    print("🗺️ Mapeando pulocationid -> borough con taxi_zones.shp...")
+    df_zone_borough = construir_mapa_zona_borough(TAXI_ZONES_SHP)
+    df_model = df_model.merge(df_zone_borough, on="pulocationid", how="left")
+
+    print("🚦 Agregando features de tráfico...")
+    df_trafico, traffic_join_keys = preparar_trafico(df_trafico_raw)
+    df_model = df_model.merge(df_trafico, on=traffic_join_keys, how="left")
+
+    for col in ["traffic_total", "traffic_norm"]:
+        if col in df_model.columns:
+            med = df_model[col].median()
+            df_model[col] = df_model[col].fillna(med if not pd.isna(med) else 0.0)
+
+    print("\n🧹 Limpieza final...")
+    df_model = df_model.dropna(subset=JOIN_KEYS + [TARGET_COL, "demanda_predicha"])
+    df_model = df_model[(df_model[TARGET_COL] > 0) & (df_model[TARGET_COL] < 15.0)]
+    print(f"Shape para modelado: {df_model.shape}")
+
+    print("\n✂️ Dividiendo en data_train / data_test...")
+    train_df, test_df = train_test_split(df_model, test_size=TEST_SIZE, random_state=SEED)
+    train_df.to_parquet(TRAIN_PATH, index=False)
+    test_df.to_parquet(TEST_PATH, index=False)
+    print(f"Train guardado en: {TRAIN_PATH} -> {train_df.shape}")
+    print(f"Test guardado en: {TEST_PATH} -> {test_df.shape}")
+
+    print("\n⚙️ Construyendo features y entrenando RandomForest...")
+    cat_cols = ["pulocationid", "day_of_week"]
+    if "borough" in df_model.columns:
+        cat_cols.append("borough")
+    model_df = pd.get_dummies(df_model, columns=cat_cols, dtype="int8")
+    feature_cols = [c for c in model_df.columns if c != TARGET_COL]
+
+    X = model_df[feature_cols]
+    y = model_df[TARGET_COL]
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=TEST_SIZE,
+        random_state=SEED,
+    )
+
+    cv = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=SEED)
+    scorers = {"mae": "neg_mean_absolute_error", "r2": "r2"}
+
+    print("\n🔎 Iniciando benchmark con CV y tuning...")
+
+    candidatos = {
+        "RandomForest": {
+            "estimator": RandomForestRegressor(random_state=SEED, n_jobs=-1),
+            "params": {
+                "n_estimators": [200, 300, 400],
+                "max_depth": [None, 10, 16, 24],
+                "min_samples_split": [2, 4, 8],
+                "min_samples_leaf": [1, 2, 4],
+                "max_features": ["sqrt", "log2", 0.6, 0.8],
+            },
+            "n_iter": 16,
+        },
+        "ExtraTrees": {
+            "estimator": ExtraTreesRegressor(random_state=SEED, n_jobs=-1),
+            "params": {
+                "n_estimators": [200, 300, 400],
+                "max_depth": [None, 10, 16, 24],
+                "min_samples_split": [2, 4, 8],
+                "min_samples_leaf": [1, 2, 4],
+                "max_features": ["sqrt", "log2", 0.6, 0.8],
+            },
+            "n_iter": 16,
+        },
+        "HistGBR": {
+            "estimator": HistGradientBoostingRegressor(random_state=SEED),
+            "params": {
+                "learning_rate": [0.03, 0.05, 0.1],
+                "max_depth": [None, 6, 10, 14],
+                "max_leaf_nodes": [15, 31, 63],
+                "min_samples_leaf": [20, 40, 60],
+                "l2_regularization": [0.0, 0.01, 0.1],
+            },
+            "n_iter": 12,
+        },
+        "Ridge": {
+            "estimator": Pipeline([
+                ("scaler", StandardScaler(with_mean=False)),
+                ("model", Ridge(random_state=SEED)),
+            ]),
+            "params": {
+                "model__alpha": [0.01, 0.1, 1.0, 10.0, 30.0, 100.0],
+            },
+            "n_iter": 6,
+        },
+    }
+
+    resultados = []
+    mejor_nombre = None
+    mejor_search = None
+    mejor_cv_mae = float("inf")
+
+    for nombre, cfg in candidatos.items():
+        print(f"\n▶ Modelo: {nombre}")
+        search = RandomizedSearchCV(
+            estimator=cfg["estimator"],
+            param_distributions=cfg["params"],
+            n_iter=cfg["n_iter"],
+            scoring=scorers,
+            refit="mae",
+            cv=cv,
+            n_jobs=-1,
+            random_state=SEED,
+            verbose=0,
+        )
+        search.fit(X_train, y_train)
+
+        cv_mae = -search.best_score_
+        best_idx = search.best_index_
+        cv_r2 = search.cv_results_["mean_test_r2"][best_idx]
+
+        resultados.append(
+            {
+                "modelo": nombre,
+                "cv_mae": cv_mae,
+                "cv_r2": cv_r2,
+                "best_params": search.best_params_,
+            }
+        )
+
+        print(f"CV MAE: {cv_mae:.4f} | CV R²: {cv_r2:.4f}")
+        print(f"Best params: {search.best_params_}")
+
+        if cv_mae < mejor_cv_mae:
+            mejor_cv_mae = cv_mae
+            mejor_nombre = nombre
+            mejor_search = search
+
+    resultados_df = pd.DataFrame(resultados).sort_values("cv_mae", ascending=True)
+    print("\n🏆 Ranking de modelos (CV):")
+    print(resultados_df[["modelo", "cv_mae", "cv_r2"]].to_string(index=False))
+
+    mejor_modelo = mejor_search.best_estimator_
+    pred = mejor_modelo.predict(X_test)
+    mae = mean_absolute_error(y_test, pred)
+    rmse = np.sqrt(mean_squared_error(y_test, pred))
+    r2 = r2_score(y_test, pred)
+
+    print("\n📈 Métricas Holdout (modelo ganador)")
+    print(f"Modelo ganador (CV): {mejor_nombre}")
+    print(f"MAE : {mae:.4f}")
+    print(f"RMSE: {rmse:.4f}")
+    print(f"R²  : {r2:.4f}")
+    print(f"Target usado: {TARGET_COL}")
+    print(f"Cantidad de features: {X.shape[1]}")
+
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(mejor_modelo, MODEL_PATH)
+    print(f"💾 Mejor modelo guardado en: {MODEL_PATH}")
+
+
+if __name__ == "__main__":
+    main()
