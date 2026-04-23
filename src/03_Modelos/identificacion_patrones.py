@@ -2,101 +2,154 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
-import itertools
 import geopandas as gpd
 import folium
 from folium.plugins import TimestampedGeoJson
 from sklearn.cluster import KMeans
 import numpy as np
+import os
+import pyspark
+from pyspark.sql import SparkSession
+from pyspark.sql import functions as F
+from dotenv import load_dotenv
+
+load_dotenv()
+os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
+os.environ["HOSTNAME"] = "localhost"
+os.environ["HADOOP_HOME"] = r"C:\hadoop"
+os.environ["PYSPARK_PYTHON"] = "python"
+os.environ["PYSPARK_DRIVER_PYTHON"] = "python"
+
+# --------------------------------------------------
+# MINIO CONFIG
+# --------------------------------------------------
+MINIO_CONFIG = {
+    "endpoint": os.getenv("MINIO_ENDPOINT", "https://minio.fdi.ucm.es"),
+    "access_key": os.getenv("MINIO_ACCESS_KEY", ""),
+    "secret_key": os.getenv("MINIO_SECRET_KEY", ""),
+}
+
+S3_PATH = "s3a://pd2/taxomanos/limpios/nyc_taxi_clean.parquet"
 
 # --------------------------------------------------
 # RUTAS
 # --------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parents[2]
-DATA_DIR = BASE_DIR / "Entrega1_Pd2" / "datos" / "limpios"
+DATA_DIR = BASE_DIR / "datos" / "limpios"
 OUT_DIR = Path(__file__).resolve().parents[1] / "Visualizacion" / "Patrones_Demanda"
-
 OUT_DIR.mkdir(parents=True, exist_ok=True)
+
+# --------------------------------------------------
+# SPARK
+# --------------------------------------------------
+def crear_spark():
+
+    spark = (SparkSession.builder
+        .appName("TaxiDemandAnalysis")
+        .master("local[*]")
+        .config("spark.driver.host", "127.0.0.1")
+        .config("spark.jars.packages",
+                "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262")
+        .config("spark.hadoop.fs.s3a.endpoint", MINIO_CONFIG["endpoint"])
+        .config("spark.hadoop.fs.s3a.access.key", MINIO_CONFIG["access_key"])
+        .config("spark.hadoop.fs.s3a.secret.key", MINIO_CONFIG["secret_key"])
+        .config("spark.hadoop.fs.s3a.path.style.access", "true")
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "true")
+        .config("spark.hadoop.fs.s3a.aws.credentials.provider",
+                "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
+        .getOrCreate()
+    )
+    spark.sparkContext.setLogLevel("WARN")
+    return spark
 
 # --------------------------------------------------
 # 1. CARGA DE DATOS
 # --------------------------------------------------
-def load_data(DATA_DIR):
-    df = pd.read_parquet(DATA_DIR / "nyc_taxi_clean.parquet")
-    return df
+def load_data(DATA_DIR, spark):
+    print("Intentando cargar datos desde MinIO...")
+    try:
+        df = spark.read.parquet(S3_PATH)
+        print("✓ Datos cargados desde MinIO")
+        return df
+    except Exception as e:
+        print(f"⚠ Fallo en MinIO: {str(e).splitlines()[0]}")
 
+    try:
+        print("Cargando desde local...")
+        df = spark.read.parquet(str(DATA_DIR / "nyc_taxi_clean.parquet"))
+        print("✓ Datos cargados desde local")
+        return df
+    except Exception as e:
+        print("❌ Error crítico: no se pudo cargar el dataset")
+        raise e
 
 # --------------------------------------------------
 # 2. VARIABLES TEMPORALES
 # --------------------------------------------------
 def add_time_variables(df):
-    df = df.copy()
-    df["hora"] = df["pickup_hour"]
-    df["dia_semana"] = df["pickup_weekday"]
-    df["fecha"] = df["tpep_pickup_datetime"].dt.date
-    return df
-
+    return (
+        df
+        .withColumn("hora", F.col("pickup_hour"))
+        .withColumn("dia_semana", F.col("pickup_weekday"))
+        .withColumn("fecha", F.to_date("tpep_pickup_datetime"))
+    )
 
 # --------------------------------------------------
-# 3. DEMANDA DIARIA (BASE)
+# 3. DEMANDA DIARIA
 # --------------------------------------------------
 def build_daily_demand(df):
-    demanda_diaria = (
-        df.groupby(["fecha", "pulocationid", "hora"])
-        .size()
-        .reset_index(name="demanda")
+    return (
+        df
+        .groupBy("fecha", "pulocationid", "hora")
+        .agg(F.count("*").alias("demanda"))
     )
-    return demanda_diaria
-
 
 # --------------------------------------------------
-# 4. PATRÓN HORARIO (MEDIA)
+# 4. PATRÓN HORARIO
 # --------------------------------------------------
 def build_hourly_pattern(demanda_diaria):
-    demanda = (
+    return (
         demanda_diaria
-        .groupby(["pulocationid", "hora"])["demanda"]
-        .mean()
-        .reset_index()
+        .groupBy("pulocationid", "hora")
+        .agg(F.avg("demanda").alias("demanda"))
     )
-    return demanda
-
 
 # --------------------------------------------------
-# 5. CLASIFICACIÓN POR ZONA
+# 5. CLASIFICACIÓN
 # --------------------------------------------------
 def classify_demand(demanda):
     thresholds = (
         demanda
-        .groupby("pulocationid")["demanda"]
-        .quantile([0.33, 0.66])
-        .unstack()
-        .rename(columns={0.33: "Q1", 0.66: "Q3"})
-        .reset_index()
+        .groupBy("pulocationid")
+        .agg(
+            F.expr("percentile_approx(demanda, 0.33)").alias("Q1"),
+            F.expr("percentile_approx(demanda, 0.66)").alias("Q3")
+        )
     )
 
-    demanda = demanda.merge(thresholds, on="pulocationid")
-
-    def clasificar(row):
-        if row["demanda"] <= row["Q1"]:
-            return "baja"
-        elif row["demanda"] >= row["Q3"]:
-            return "alta"
-        else:
-            return "media"
-
-    demanda["nivel_demanda"] = demanda.apply(clasificar, axis=1)
-
-    return demanda
+    return (
+        demanda
+        .join(thresholds, on="pulocationid", how="left")
+        .withColumn(
+            "nivel_demanda",
+            F.when(F.col("demanda") <= F.col("Q1"), "baja")
+             .when(F.col("demanda") >= F.col("Q3"), "alta")
+             .otherwise("media")
+        )
+    )
 
 # --------------------------------------------------
-# 6. HEATMAP PRINCIPAL
+# 6. HEATMAP
 # --------------------------------------------------
 def plot_main_heatmap(demanda, OUT_DIR):
-    pivot = demanda.pivot(
+    df = demanda.toPandas()
+
+    pivot = df.pivot_table(
         index="pulocationid",
         columns="hora",
-        values="demanda"
+        values="demanda",
+        aggfunc="mean"
     )
 
     plt.figure(figsize=(12,8))
@@ -106,23 +159,31 @@ def plot_main_heatmap(demanda, OUT_DIR):
     plt.savefig(OUT_DIR / "heatmap_patrones.png")
     plt.close()
 
-
 # --------------------------------------------------
-# 7. CURVAS TOP ZONAS
+# 7. TOP ZONAS
 # --------------------------------------------------
 def plot_top_zones(demanda, OUT_DIR):
-    plt.figure(figsize=(12,6))
-
     top_zonas = (
-        demanda.groupby("pulocationid")["demanda"]
-        .mean()
-        .sort_values(ascending=False)
-        .head(5)
-        .index
+        demanda
+        .groupBy("pulocationid")
+        .agg(F.avg("demanda").alias("media"))
+        .orderBy(F.desc("media"))
+        .limit(5)
+        .select("pulocationid")
+        .toPandas()["pulocationid"]
+        .tolist()
     )
 
+    df = (
+        demanda
+        .filter(F.col("pulocationid").isin(top_zonas))
+        .toPandas()
+    )
+
+    plt.figure(figsize=(12,6))
+
     for zona in top_zonas:
-        curva = demanda[demanda["pulocationid"] == zona]
+        curva = df[df["pulocationid"] == zona].sort_values("hora")
         plt.plot(curva["hora"], curva["demanda"], label=f"Zona {zona}")
 
     plt.legend()
@@ -133,134 +194,99 @@ def plot_top_zones(demanda, OUT_DIR):
     plt.savefig(OUT_DIR / "curvas_demanda.png")
     plt.close()
 
-
-# --------------------------------------------------
-# 8. BOXPLOT HORARIO
 # --------------------------------------------------
 def plot_boxplot(demanda, OUT_DIR):
+    df = demanda.toPandas()
+
     plt.figure(figsize=(12,6))
-    sns.boxplot(x="hora", y="demanda", data=demanda)
+    sns.boxplot(x="hora", y="demanda", data=df)
     plt.title("Distribución de demanda por hora")
     plt.tight_layout()
     plt.savefig(OUT_DIR / "boxplot_demanda.png")
     plt.close()
 
-
 # --------------------------------------------------
-# 9. ANÁLISIS SEMANAL
+# SEMANAL
 # --------------------------------------------------
 def build_weekly_demand(df):
-    demanda_semana = (
-        df.groupby(["dia_semana", "hora"])
-        .size()
-        .reset_index(name="demanda")
+    return (
+        df
+        .groupBy("dia_semana", "hora")
+        .agg(F.count("*").alias("demanda"))
     )
-    return demanda_semana
-
 
 def plot_weekly_curves(demanda_semana, OUT_DIR):
-    mapa_dias = {
-        0: "Lunes", 1: "Martes", 2: "Miércoles",
-        3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"
-    }
+    df = demanda_semana.toPandas()
 
-    demanda_semana = demanda_semana.copy()
-    demanda_semana["dia_semana"] = demanda_semana["dia_semana"].map(mapa_dias)
+    mapa = {0:"Lunes",1:"Martes",2:"Miércoles",3:"Jueves",4:"Viernes",5:"Sábado",6:"Domingo"}
+    df["dia_semana"] = df["dia_semana"].map(mapa)
 
-    orden_dias = [
-        "Lunes", "Martes", "Miércoles",
-        "Jueves", "Viernes", "Sábado", "Domingo"
-    ]
+    orden = list(mapa.values())
 
     plt.figure(figsize=(12,6))
 
-    for dia in orden_dias:
-        subset = demanda_semana[demanda_semana["dia_semana"] == dia]
-        plt.plot(subset["hora"], subset["demanda"], label=dia)
+    for dia in orden:
+        sub = df[df["dia_semana"] == dia].sort_values("hora")
+        plt.plot(sub["hora"], sub["demanda"], label=dia)
 
     plt.legend()
-    plt.title("Demanda por hora según día de la semana")
-    plt.xlabel("Hora")
-    plt.ylabel("Nº viajes")
     plt.tight_layout()
     plt.savefig(OUT_DIR / "curvas_dias_semana.png")
     plt.close()
 
-
 def plot_weekly_heatmap(demanda_semana, OUT_DIR):
-    mapa_dias = {
-        0: "Lunes", 1: "Martes", 2: "Miércoles",
-        3: "Jueves", 4: "Viernes", 5: "Sábado", 6: "Domingo"
-    }
+    df = demanda_semana.toPandas()
 
-    demanda_semana = demanda_semana.copy()
-    demanda_semana["dia_semana"] = demanda_semana["dia_semana"].map(mapa_dias)
+    mapa = {0:"Lunes",1:"Martes",2:"Miércoles",3:"Jueves",4:"Viernes",5:"Sábado",6:"Domingo"}
+    df["dia_semana"] = df["dia_semana"].map(mapa)
 
-    orden_dias = [
-        "Lunes", "Martes", "Miércoles",
-        "Jueves", "Viernes", "Sábado", "Domingo"
-    ]
+    orden = list(mapa.values())
 
-    pivot_semana = demanda_semana.pivot(
+    pivot = df.pivot_table(
         index="dia_semana",
         columns="hora",
-        values="demanda"
-    ).reindex(orden_dias)
+        values="demanda",
+        aggfunc="mean"
+    ).reindex(orden)
 
     plt.figure(figsize=(12,6))
-    sns.heatmap(pivot_semana, cmap="coolwarm")
-    plt.title("Demanda por día de la semana y hora")
+    sns.heatmap(pivot, cmap="coolwarm")
     plt.tight_layout()
     plt.savefig(OUT_DIR / "heatmap_dias_semana.png")
     plt.close()
 
 # --------------------------------------------------
-# UTIL: REJILLA COMPLETA
+# GRID CORREGIDO
 # --------------------------------------------------
 def build_full_grid(demanda, zones):
-    zonas_ids = zones["LocationID"].unique()
-    horas = range(24)
+    spark = demanda.sparkSession
 
-    grid = pd.DataFrame(
-        list(itertools.product(zonas_ids, horas)),
-        columns=["pulocationid", "hora"]
+    zonas_ids = zones["LocationID"].unique().tolist()
+
+    horas_df = spark.createDataFrame([(i,) for i in range(24)], ["hora"])
+    zonas_df = spark.createDataFrame([(int(z),) for z in zonas_ids], ["pulocationid"])
+
+    grid = zonas_df.crossJoin(horas_df)
+
+    return (
+        grid
+        .join(demanda, on=["pulocationid", "hora"], how="left")
+        .fillna({"demanda": 0})
     )
-
-    full = grid.merge(
-        demanda,
-        on=["pulocationid", "hora"],
-        how="left"
-    )
-
-    full["demanda"] = full["demanda"].fillna(0)
-
-    return full
-
 
 # --------------------------------------------------
-# UTIL: LEYENDA
+# MAPAS (sin cambios funcionales)
 # --------------------------------------------------
 def add_legend(mapa, title="Demanda"):
-    legend_html = f"""
-    <div style="
-    position: fixed;
-    bottom: 40px;
-    right: 40px;
-    width: 160px;
-    height: 110px;
-    z-index:9999;
-    font-size:14px;
-    background-color:white;
-    padding:10px;
-    border:2px solid grey;
-    border-radius:8px;
-    ">
+    legend_html = f"""<div style="position: fixed; bottom: 40px; right: 40px;
+    width: 160px; height: 110px; z-index:9999; font-size:14px;
+    background-color:white; padding:10px; border:2px solid grey;
+    border-radius:8px;">
     <b>{title}</b><br>
     <i style="background:#2ca25f;width:10px;height:10px;display:inline-block;"></i> Baja<br>
     <i style="background:#feb24c;width:10px;height:10px;display:inline-block;"></i> Media<br>
     <i style="background:#de2d26;width:10px;height:10px;display:inline-block;"></i> Alta
-    </div>
-    """
+    </div>"""
     mapa.get_root().html.add_child(folium.Element(legend_html))
 
 def map_global(demanda, DATA_DIR, OUT_DIR):
@@ -270,25 +296,42 @@ def map_global(demanda, DATA_DIR, OUT_DIR):
     zones = zones.to_crs(epsg=4326)
     zones["LocationID"] = zones["LocationID"].astype(int)
 
+    # ---------------------------
+    # GRID COMPLETO (Spark)
+    # ---------------------------
     demanda_full = build_full_grid(demanda, zones)
 
-    # CUARTILES GLOBALES
-    q1 = demanda_full["demanda"].quantile(0.33)
-    q3 = demanda_full["demanda"].quantile(0.66)
+    # ---------------------------
+    # CUARTILES GLOBALES (Spark)
+    # ---------------------------
+    quantiles = demanda_full.approxQuantile("demanda", [0.33, 0.66], 0.01)
+    q1, q3 = quantiles[0], quantiles[1]
 
-    def nivel(v):
-        if v <= q1: return "baja"
-        if v >= q3: return "alta"
-        return "media"
+    # ---------------------------
+    # CLASIFICACIÓN (Spark)
+    # ---------------------------
+    demanda_full = demanda_full.withColumn(
+        "nivel",
+        F.when(F.col("demanda") <= q1, "baja")
+         .when(F.col("demanda") >= q3, "alta")
+         .otherwise("media")
+    )
 
-    demanda_full["nivel"] = demanda_full["demanda"].apply(nivel)
+    # 👉 SOLO AQUÍ PASAMOS A PANDAS
+    demanda_full = demanda_full.toPandas()
 
+    # ---------------------------
+    # COLORES
+    # ---------------------------
     color_map = {
         "baja": "#2ca25f",
         "media": "#feb24c",
         "alta": "#de2d26"
     }
 
+    # ---------------------------
+    # FEATURES
+    # ---------------------------
     features = []
 
     for _, zona in zones.iterrows():
@@ -311,7 +354,11 @@ def map_global(demanda, DATA_DIR, OUT_DIR):
 
     geojson = {"type": "FeatureCollection", "features": features}
 
-    mapa = folium.Map(location=[40.7128, -74.0060], zoom_start=11, tiles="CartoDB positron")
+    mapa = folium.Map(
+        location=[40.7128, -74.0060],
+        zoom_start=11,
+        tiles="CartoDB positron"
+    )
 
     TimestampedGeoJson(geojson, period="PT1H", duration="PT1H").add_to(mapa)
 
@@ -328,31 +375,44 @@ def map_local(demanda, DATA_DIR, OUT_DIR):
 
     demanda_full = build_full_grid(demanda, zones)
 
-    # CUARTILES POR ZONA
+    # ---------------------------
+    # CUARTILES POR ZONA (Spark)
+    # ---------------------------
     quantiles = (
-        demanda_full
-        .groupby("pulocationid")["demanda"]
-        .quantile([0.33, 0.66])
-        .unstack()
-        .rename(columns={0.33: "q1", 0.66: "q3"})
-        .reset_index()
+    demanda_full
+    .groupBy("pulocationid")
+    .agg(
+        F.expr("percentile_approx(demanda, 0.33)").alias("q1_local"),
+        F.expr("percentile_approx(demanda, 0.66)").alias("q3_local")
     )
+)
 
-    demanda_local = demanda_full.merge(quantiles, on="pulocationid")
+    demanda_local = demanda_full.join(quantiles, on="pulocationid")
+    # ---------------------------
+    # CLASIFICACIÓN
+    # ---------------------------
+    demanda_local = demanda_local.withColumn(
+    "nivel",
+    F.when(F.col("demanda") <= F.col("q1_local"), "baja")
+     .when(F.col("demanda") >= F.col("q3_local"), "alta")
+     .otherwise("media")
+)
 
-    def nivel(row):
-        if row["demanda"] <= row["q1"]: return "baja"
-        if row["demanda"] >= row["q3"]: return "alta"
-        return "media"
+    # 👉 pasar a pandas SOLO AQUÍ
+    demanda_local = demanda_local.toPandas()
 
-    demanda_local["nivel"] = demanda_local.apply(nivel, axis=1)
-
+    # ---------------------------
+    # COLORES
+    # ---------------------------
     color_map = {
         "baja": "#2ca25f",
         "media": "#feb24c",
         "alta": "#de2d26"
     }
 
+    # ---------------------------
+    # FEATURES
+    # ---------------------------
     features = []
 
     for _, zona in zones.iterrows():
@@ -375,7 +435,11 @@ def map_local(demanda, DATA_DIR, OUT_DIR):
 
     geojson = {"type": "FeatureCollection", "features": features}
 
-    mapa = folium.Map(location=[40.7128, -74.0060], zoom_start=11, tiles="CartoDB positron")
+    mapa = folium.Map(
+        location=[40.7128, -74.0060],
+        zoom_start=11,
+        tiles="CartoDB positron"
+    )
 
     TimestampedGeoJson(geojson, period="PT1H", duration="PT1H").add_to(mapa)
 
@@ -383,11 +447,16 @@ def map_local(demanda, DATA_DIR, OUT_DIR):
 
     mapa.save(OUT_DIR / "mapa_por_zona.html")
 
-def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
+def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=3):
     print("Iniciando clustering...")
 
     # --------------------------------------------------
-    # MATRIZ
+    # 1. SPARK → PANDAS
+    # --------------------------------------------------
+    demanda = demanda.toPandas()
+
+    # --------------------------------------------------
+    # 2. MATRIZ
     # --------------------------------------------------
     matriz = demanda.pivot(
         index="pulocationid",
@@ -395,8 +464,11 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
         values="demanda"
     ).fillna(0)
 
+    # ⚠️ asegurar orden correcto de horas
+    matriz = matriz.reindex(sorted(matriz.columns), axis=1)
+
     # --------------------------------------------------
-    # NORMALIZACIÓN
+    # 3. NORMALIZACIÓN
     # --------------------------------------------------
     X = np.log1p(matriz)
 
@@ -404,21 +476,27 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
     X = X.div(X.std(axis=1), axis=0).fillna(0)
 
     # --------------------------------------------------
-    # KMEANS
+    # 4. KMEANS
     # --------------------------------------------------
     kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
     matriz["cluster"] = kmeans.fit_predict(X)
 
     # --------------------------------------------------
-    # INTERPRETACIÓN CLUSTERS
+    # 5. INTERPRETACIÓN CLUSTERS
     # --------------------------------------------------
     cluster_labels = {}
 
     for c in range(k):
         subset = matriz[matriz["cluster"] == c].drop(columns="cluster")
+
+        if subset.empty:
+            cluster_labels[c] = "Sin datos"
+            continue
+
         media = subset.mean()
 
-        pico = media.idxmax()
+        top_horas = media.sort_values(ascending=False).head(2).index.tolist()
+        pico = top_horas[0]
 
         if 7 <= pico <= 10:
             label = f"Mañana (pico {pico}h)"
@@ -432,12 +510,16 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
         cluster_labels[c] = label
 
     # --------------------------------------------------
-    # CURVAS
+    # 6. CURVAS
     # --------------------------------------------------
     plt.figure(figsize=(12,6))
 
     for c in range(k):
         subset = matriz[matriz["cluster"] == c].drop(columns="cluster")
+
+        if subset.empty:
+            continue
+
         media = subset.mean()
 
         plt.plot(media.index, media.values, label=cluster_labels[c])
@@ -451,7 +533,7 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
     plt.close()
 
     # --------------------------------------------------
-    # MAPA (BASE BLANCO/NEGRO + COLORES CLUSTER)
+    # 7. MAPA
     # --------------------------------------------------
     print("Generando mapa de clusters...")
 
@@ -467,7 +549,6 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
         how="left"
     )
 
-    # 🎨 COLORES ORIGINALES (los buenos)
     cluster_colors = {
         0: "#1f77b4",
         1: "#2ca02c",
@@ -479,7 +560,7 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
     mapa = folium.Map(
         location=[40.7128, -74.0060],
         zoom_start=11,
-        tiles="CartoDB positron"  # 👈 mapa limpio
+        tiles="CartoDB positron"
     )
 
     for _, row in zones.iterrows():
@@ -501,7 +582,7 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=5):
         ).add_to(mapa)
 
     # --------------------------------------------------
-    # LEYENDA (CLUSTERS INTERPRETADOS)
+    # 8. LEYENDA
     # --------------------------------------------------
     legend_html = """
     <div style="
@@ -540,11 +621,18 @@ def main():
     print("INICIANDO PIPELINE DE ANÁLISIS")
     print("===================================")
 
+    spark = crear_spark()
+
+    print(BASE_DIR)
+    print(DATA_DIR)
+    print(OUT_DIR)
+
+    input("Pulsa Enter (o Ctrl+C para parar)... ")
     # --------------------------------------------------
     # 1. CARGA Y PREPARACIÓN
     # --------------------------------------------------
     print("\n[1] Cargando datos...")
-    df = load_data(DATA_DIR)
+    df = load_data(DATA_DIR, spark)
 
     print("[2] Añadiendo variables temporales...")
     df = add_time_variables(df)
@@ -604,6 +692,8 @@ def main():
     print("PIPELINE COMPLETADO")
     print("Resultados en:", OUT_DIR)
     print("===================================")
+
+    spark.stop()
 
 
 if __name__ == "__main__":
