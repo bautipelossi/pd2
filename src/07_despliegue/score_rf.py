@@ -148,6 +148,55 @@ def preparar_trafico(df_trafico: pd.DataFrame) -> tuple[pd.DataFrame, list]:
     return df, join_keys
 
 
+def add_manual_features(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["pickup_hour_sq"] = out["pickup_hour"].astype(float) ** 2
+
+    # Interacciones hora x borough para captar patrones horarios por distrito.
+    if "borough" in out.columns:
+        boro_dummies = pd.get_dummies(out["borough"], prefix="boro", dtype="int8")
+        for col in boro_dummies.columns:
+            out[f"hour_x_{col}"] = out["pickup_hour"].astype(float) * boro_dummies[col].astype(float)
+
+    return out
+
+
+def fit_target_encoding_map(train_df: pd.DataFrame, cat_col: str, target_col: str, alpha: float = 20.0):
+    global_mean = train_df[target_col].mean()
+    stats = train_df.groupby(cat_col)[target_col].agg(["mean", "count"]).reset_index()
+    stats["te"] = (stats["count"] * stats["mean"] + alpha * global_mean) / (stats["count"] + alpha)
+    te_map = dict(zip(stats[cat_col], stats["te"]))
+    return te_map, global_mean
+
+
+def apply_target_encoding(
+    df: pd.DataFrame, cat_col: str, te_map: dict, global_mean: float, new_col: str
+) -> pd.DataFrame:
+    out = df.copy()
+    out[new_col] = out[cat_col].map(te_map).fillna(global_mean)
+    return out
+
+
+def clip_target_on_train_quantiles(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    target_col: str,
+    q_low: float = 0.01,
+    q_high: float = 0.99,
+):
+    low = train_df[target_col].quantile(q_low)
+    high = train_df[target_col].quantile(q_high)
+
+    tr = train_df.copy()
+    te = test_df.copy()
+
+    tr[target_col] = tr[target_col].clip(lower=low, upper=high)
+    te[target_col] = te[target_col].clip(lower=low, upper=high)
+
+    print(f"🎯 Clip target por cuantiles train: low={low:.4f}, high={high:.4f}")
+    return tr, te
+
+
 def main():
     print("📦 Cargando datasets Fase 2 obligatorios...")
     df_renta = leer_parquet_robusto(RENTA_PATH)
@@ -196,28 +245,65 @@ def main():
     print(f"Shape para modelado: {df_model.shape}")
 
     print("\n✂️ Dividiendo en data_train / data_test...")
-    train_df, test_df = train_test_split(df_model, test_size=TEST_SIZE, random_state=SEED)
-    train_df.to_parquet(TRAIN_PATH, index=False)
-    test_df.to_parquet(TEST_PATH, index=False)
-    print(f"Train guardado en: {TRAIN_PATH} -> {train_df.shape}")
-    print(f"Test guardado en: {TEST_PATH} -> {test_df.shape}")
-
-    print("\n⚙️ Construyendo features y entrenando RandomForest...")
-    cat_cols = ["pulocationid", "day_of_week"]
-    if "borough" in df_model.columns:
-        cat_cols.append("borough")
-    model_df = pd.get_dummies(df_model, columns=cat_cols, dtype="int8")
-    feature_cols = [c for c in model_df.columns if c != TARGET_COL]
-
-    X = model_df[feature_cols]
-    y = model_df[TARGET_COL]
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
+    base_train_df, base_test_df = train_test_split(
+        df_model,
         test_size=TEST_SIZE,
         random_state=SEED,
     )
+
+    base_train_df, base_test_df = clip_target_on_train_quantiles(
+        base_train_df,
+        base_test_df,
+        TARGET_COL,
+        q_low=0.01,
+        q_high=0.99,
+    )
+
+    base_train_df = add_manual_features(base_train_df)
+    base_test_df = add_manual_features(base_test_df)
+
+    te_map, te_global = fit_target_encoding_map(
+        base_train_df,
+        cat_col="pulocationid",
+        target_col=TARGET_COL,
+        alpha=20.0,
+    )
+    base_train_df = apply_target_encoding(
+        base_train_df,
+        cat_col="pulocationid",
+        te_map=te_map,
+        global_mean=te_global,
+        new_col="pulocationid_te",
+    )
+    base_test_df = apply_target_encoding(
+        base_test_df,
+        cat_col="pulocationid",
+        te_map=te_map,
+        global_mean=te_global,
+        new_col="pulocationid_te",
+    )
+
+    base_train_df.to_parquet(TRAIN_PATH, index=False)
+    base_test_df.to_parquet(TEST_PATH, index=False)
+    print(f"Train guardado en: {TRAIN_PATH} -> {base_train_df.shape}")
+    print(f"Test guardado en: {TEST_PATH} -> {base_test_df.shape}")
+
+    print("\n⚙️ Construyendo features y entrenando benchmark...")
+    cat_cols = ["day_of_week"]
+    if "borough" in base_train_df.columns:
+        cat_cols.append("borough")
+
+    train_enc = pd.get_dummies(base_train_df, columns=cat_cols, dtype="int8")
+    test_enc = pd.get_dummies(base_test_df, columns=cat_cols, dtype="int8")
+    train_enc, test_enc = train_enc.align(test_enc, join="left", axis=1, fill_value=0)
+
+    drop_cols = [TARGET_COL, "pulocationid"]
+    feature_cols = [c for c in train_enc.columns if c not in drop_cols]
+
+    X_train = train_enc[feature_cols]
+    y_train = train_enc[TARGET_COL]
+    X_test = test_enc[feature_cols]
+    y_test = test_enc[TARGET_COL]
 
     cv = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=SEED)
     scorers = {"mae": "neg_mean_absolute_error", "r2": "r2"}
@@ -327,7 +413,7 @@ def main():
     print(f"RMSE: {rmse:.4f}")
     print(f"R²  : {r2:.4f}")
     print(f"Target usado: {TARGET_COL}")
-    print(f"Cantidad de features: {X.shape[1]}")
+    print(f"Cantidad de features: {X_train.shape[1]}")
 
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(mejor_modelo, MODEL_PATH)
