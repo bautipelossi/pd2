@@ -9,15 +9,15 @@
     para LTC y FHV). 
 
 '''
-
-
 # ==============================================================================
-# PASO 1: IMPORTAR LIBRERÍAS
+# PASO 1: IMPORTAR LIBRERÍAS Y ENTORNO (COPIADO DEL SCRIPT QUE FUNCIONA)
 # ==============================================================================
 
 import os
+import sys
 import warnings
 from typing import Tuple
+from pathlib import Path
 
 import pandas as pd
 import geopandas as gpd
@@ -25,19 +25,21 @@ import folium
 from folium import plugins
 import branca.colormap as cm
 from scipy import stats
-import requests
-import zipfile
-import io
+from dotenv import load_dotenv, find_dotenv # Añadido de tu script
 
-os.environ['HADOOP_HOME'] = '' #C:\hadoop
-#os.environ['PATH'] += os.pathsep + r'C:\hadoop\bin'
-# Configuración de PySpark
+# --- CONFIGURACIÓN DE ENTORNO IDÉNTICA A LA TUYA ---
+load_dotenv(find_dotenv())
+os.environ['PYSPARK_PYTHON'] = sys.executable
+os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
+os.environ['HADOOP_HOME'] = "C:/hadoop"
+os.environ['HADOOP_TMP_DIR'] = "C:/tmp/hadoop"
+# ¡HEMOS ELIMINADO LA DECLARACIÓN MANUAL DE SPARK_HOME!
+# ---------------------------------------------------
+
 import pyspark
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
-
-os.environ['SPARK_HOME'] = os.path.dirname(os.path.dirname(pyspark.__file__))
 
 warnings.filterwarnings('ignore')
 
@@ -72,70 +74,38 @@ K_DIAGNOSTIC_PNG = os.path.join(PROJECT_ROOT, "outputs", "kmeans_elbow_silhouett
 TAXI_ZONES_URL = "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip"
 
 
-
 # ==============================================================================
-# PASO 3: CREAR Y CONFIGURAR SESIÓN SPARK PARA MINIO
+# PASO 3: CREAR Y CONFIGURAR SESIÓN SPARK PARA MINIO (VERSIÓN CORREGIDA)
 # ==============================================================================
 
 def crear_spark_session() -> SparkSession:
-    """
-    Crea y configura una sesión de Spark para conectarse a MinIO usando S3A.
-    
-    La configuración incluye:
-    - Credenciales de acceso a MinIO
-    - Endpoint personalizado
-    - Path style access (necesario para MinIO)
-    - Paquetes necesarios para S3A y AWS
-    
-    Returns:
-        SparkSession: Sesión de Spark configurada
-    """
     print("=" * 60)
     print("PASO 3: Configurando sesión de Spark para MinIO...")
     print("=" * 60)
     
-    # Paquetes necesarios para conectividad S3
-    packages = [
-        "org.apache.hadoop:hadoop-aws:3.3.4",
-        "com.amazonaws:aws-java-sdk-bundle:1.12.262"
-    ]
+    packages = "org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262"
     
-    spark = (SparkSession.builder
-        .appName("NYC_Taxi_Poder_Adquisitivo")
-        .master("local[*]")  # Usar todos los cores disponibles
-        
-        # Configuración de memoria
-        .config("spark.driver.memory", "4g")
-        .config("spark.executor.memory", "4g")
-        
-        # Paquetes Maven para S3
-        .config("spark.jars.packages", ",".join(packages))
-        
-        # Configuración S3A para MinIO
-        .config("spark.hadoop.fs.s3a.endpoint", MINIO_CONFIG["endpoint"])
-        .config("spark.hadoop.fs.s3a.access.key", MINIO_CONFIG["access_key"])
-        .config("spark.hadoop.fs.s3a.secret.key", MINIO_CONFIG["secret_key"])
-        .config("spark.hadoop.fs.s3a.path.style.access", MINIO_CONFIG["path_style"])
-        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-        
-        # Deshabilitar SSL verification si es necesario (desarrollo)
-        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "true")
-        
-        # Configuración adicional para compatibilidad
-        .config("spark.hadoop.fs.s3a.aws.credentials.provider", 
-                "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider")
-        
+    spark = SparkSession.builder \
+        .appName("NYC_Taxi_Prediccion_Propinas") \
+        .master("local[*]") \
+        .config("spark.driver.memory", "4g") \
+        .config("spark.executor.memory", "4g") \
+        .config("spark.jars.packages", packages) \
+        .config("spark.hadoop.fs.s3a.endpoint", MINIO_CONFIG["endpoint"]) \
+        .config("spark.hadoop.fs.s3a.access.key", MINIO_CONFIG["access_key"]) \
+        .config("spark.hadoop.fs.s3a.secret.key", MINIO_CONFIG["secret_key"]) \
+        .config("spark.hadoop.fs.s3a.path.style.access", MINIO_CONFIG["path_style"]) \
+        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem") \
+        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "true") \
+        .config("spark.hadoop.fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider") \
+        .config("spark.hadoop.fs.file.impl", "org.apache.hadoop.fs.RawLocalFileSystem") \
+        .config("spark.local.dir", os.environ.get('HADOOP_TMP_DIR', "C:/tmp/hadoop")) \
         .getOrCreate()
-    )
     
-    # Reducir verbosidad de logs
-    spark.sparkContext.setLogLevel("WARN")
+    spark.sparkContext.setLogLevel("ERROR")
     
-    print(f"✓ Spark Session creada: {spark.version}")
-    print(f"✓ Endpoint MinIO: {MINIO_CONFIG['endpoint']}")
-    
+    print(f"✓ Spark Session creada con éxito")
     return spark
-
 
 # ==============================================================================
 # PASO 4: CARGAR DATOS (INTENTO MINIO -> BACKUP LOCAL)
@@ -170,26 +140,23 @@ def cargar_datos_taxi(spark: SparkSession):
     df_taxi = cargar_dataset(spark, "taxi")
     
     # --- NORMALIZACIÓN DE COLUMNAS ---
-    # Si viene en minúsculas (pulocationid), la renombramos a CamelCase (PULocationID)
     if "pulocationid" in df_taxi.columns:
         df_taxi = df_taxi.withColumnRenamed("pulocationid", "PULocationID")
     
-    # Seleccionamos las columnas que nos servirán para el estudio A PRIORI
     columnas_taxi = ["PULocationID", 
                     "tpep_pickup_datetime", 
                     "tip_amount",
                     "passenger_count",
                     "fare_amount",
-                    "total_amount"  # cobro total: fare_amount + tip_amount
+                    "total_amount"
                     ]
 
-    # Verificamos qué columnas existen realmente (en el log dice que tienes tip_amount, total_amount, etc.)
     columnas_existentes = [col for col in columnas_taxi if col in df_taxi.columns]
     
-    # Eliminamos posibles valores nulos o inválidos
-    df = df.filter(F.col("tip_amount") >= 0)
-    df = df.filter(F.col("fare_amount") > 0)
-    df = df.filter(F.col("total_amount") > 0)
+    # --- BUG CORREGIDO (Era df_taxi, no df) ---
+    df_taxi = df_taxi.filter(F.col("tip_amount") >= 0)
+    df_taxi = df_taxi.filter(F.col("fare_amount") > 0)
+    df_taxi = df_taxi.filter(F.col("total_amount") > 0)
 
     df_taxi = df_taxi.select(columnas_existentes)
     df_taxi = df_taxi.withColumn("tipo_servicio", F.lit("taxi"))
@@ -262,24 +229,26 @@ def estudio_analítico(df_final):
 
     # --- 2) Análisis variable objetivo
     print("\n 2) Análisis variable objetivo ")
+    
+    # Quitamos los .show() del final y añadimos la F. a min y max
     df_tip_amount = df_final.select(
         F.lit("tip_amount").alias("variable"),
         F.mean("tip_amount").alias("media"),
         F.stddev("tip_amount").alias("desv_tipica"),
-        min("tip_amount").alias("min"),
-        max("tip_amount").alias("max")
-    ).show()
+        F.min("tip_amount").alias("min"),
+        F.max("tip_amount").alias("max")
+    )
 
     df_tip_pct = df_final.select(
         F.lit("tip_pct").alias("variable"),
         F.mean("tip_pct").alias("media"),
         F.stddev("tip_pct").alias("desv_tipica"),
-        min("tip_pct").alias("min"),
-        max("tip_pct").alias("max")
-    ).show()
+        F.min("tip_pct").alias("min"),
+        F.max("tip_pct").alias("max")
+    )
 
-    # Unir verticalmente
-    df_tip_stats = df_tip_amount.union(df_tip_pct)
+    # Unir verticalmente y AHORA sí mostramos el resultado
+    df_tip_stats = df_tip_amount.unionByName(df_tip_pct)
     df_tip_stats.show()
 
     # --- 3) Estudio de correlaciones entre variables
@@ -296,25 +265,26 @@ def estudio_analítico(df_final):
     print("4) Agregaciones temporale para observar distribución temporal de las propinas")
     
     print("\n Por Hora")
-    df_final.groupBy("hour").aggregate(
+    df_final.groupBy("hour").agg(
         F.mean("tip_amount").alias("avg_tip_amount"),
         F.count("*").alias("num_trips")
     ).orderBy("hour").show()
 
     print("\n Por Día de la Semana")
-    df_final.groupBy("day_of_week").aggregate(
+    df_final.groupBy("day_of_week").agg(
         F.mean("tip_amount").alias("avg_tip_amount"),
         F.count("*").alias("num_trips")
     ).orderBy("day_of_week").show()
 
     print("\n Por Mes")
-    df_final.groupBy("month").aggregate(
+    df_final.groupBy("month").agg(
         F.mean("tip_amount").alias("avg_tip_amount"),
         F.count("*").alias("num_trips")
     ).orderBy("month").show()
 
     print("\n Comparación entre semana vs fin de semana")
-    df_final.groupBy("is_weekday").aggregate(
+    # CUIDADO AQUÍ: Tu compañero agrupa por "is_weekday" pero arriba creó la columna "is_weekend"
+    df_final.groupBy("is_weekend").agg(
         F.mean("tip_amount").alias("avg_tip_amount"),
         F.count("*").alias("num_trips")
     ).show()
@@ -322,11 +292,10 @@ def estudio_analítico(df_final):
     # --- 5) Comparación entre tarifa y comportamiento con la propina
     print("5) Comparación entre tarifa vs comportamiento con la propina")
 
-    df_final.groupBy("passenger_count").aggregate(
+    df_final.groupBy("passenger_count").agg(
         F.mean("fare_amount").alias("avg_fare"),
         F.mean("tip_pct").alias("avg_tip_pct")
     ).orderBy("passenger_count").show()
-
 
 # ==============================================================================
 # PASO 6: BASELINE MODEL
