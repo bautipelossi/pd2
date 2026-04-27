@@ -143,7 +143,7 @@ def cargar_datos_taxi(spark: SparkSession):
     if "pulocationid" in df_taxi.columns:
         df_taxi = df_taxi.withColumnRenamed("pulocationid", "PULocationID")
     
-    columnas_taxi = ["PULocationID", 
+    columnas_taxi = ["PULocationID", #numérica a la vista pero categórica en ralidad: NO tratar como numérica
                     "tpep_pickup_datetime", 
                     "tip_amount",
                     "passenger_count",
@@ -188,7 +188,7 @@ def cargar_datos_fhv(spark: SparkSession):
 def creacion_variables(df_taxi):
     print("\n" + "=" * 60 )
     print("PASO 5: Creando variables auxiliares para el modelo ...")
-    print("\n" + "=" * 60 )
+    print("=" * 60 )
 
     # Creación de variables auxiliares temporales
     df_auxt = df_taxi.withColumn(
@@ -293,9 +293,85 @@ def estudio_analítico(df_final):
     print("5) Comparación entre tarifa vs comportamiento con la propina")
 
     df_final.groupBy("passenger_count").agg(
+        F.count("*").alias("num_trips"),
         F.mean("fare_amount").alias("avg_fare"),
         F.mean("tip_pct").alias("avg_tip_pct")
     ).orderBy("passenger_count").show()
+
+import matplotlib.pyplot as plt
+import seaborn as sns
+def generar_boxplots(df_spark, columnas, output_dir):
+    """
+    Genera boxplots para cada variable numérica y los guarda en disco
+    """
+    print("\n📊 Generando boxplots...")
+
+    # Convertimos a pandas (solo columnas necesarias)
+    df_pd = df_spark.select(columnas).toPandas()
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    for col in columnas:
+        plt.figure(figsize=(6, 4))
+        sns.boxplot(x=df_pd[col])
+        plt.title(f"Boxplot - {col}")
+
+        filepath = os.path.join(output_dir, f"boxplot_{col}.png")
+        plt.savefig(filepath)
+        plt.close()
+
+    print(f"✅ Boxplots guardados en: {output_dir}")
+
+
+def tratar_outliers(df_spark):
+    """
+    Genera boxplots y elimina outliers usando método IQR
+    """
+
+    print("\n🚀 Tratamiento de outliers iniciado...")
+
+    # 🔹 Columnas numéricas a analizar
+    columnas = [
+        "tip_amount",
+        "fare_amount",
+        "total_amount"
+    ]
+
+    # 🔹 Ruta de salida (ajustada a tu estructura)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+    output_dir = os.path.join(project_root, "src", "Visualizacion", "Boxplots_Propinas")
+
+    # 1️⃣ Generar boxplots ANTES de limpiar
+    generar_boxplots(df_spark, columnas, output_dir)
+
+    # 2️⃣ Cálculo de límites IQR
+    bounds = {}
+
+    for col in columnas:
+        q1, q3 = df_spark.approxQuantile(col, [0.25, 0.75], 0.01)
+        iqr = q3 - q1
+
+        lower = q1 - 1.5 * iqr
+        upper = q3 + 1.5 * iqr
+
+        bounds[col] = (lower, upper)
+
+
+
+
+    # 3️⃣ Filtrado de outliers
+    df_clean = df_spark
+
+    for col in columnas:
+        lower, upper = bounds[col]
+        df_clean = df_clean.filter(
+            (F.col(col) >= lower) & (F.col(col) <= upper)
+        )
+
+    print("✅ Outliers eliminados correctamente")
+
+    return df_clean
+
 
 # ==============================================================================
 # PASO 6: BASELINE MODEL
@@ -309,18 +385,21 @@ from pyspark.ml.evaluation import RegressionEvaluator
 def base_pipeline():
 
     # Variables -a priori-
-    cols = [
-            "PULocationID", 
-            "passenger_count", 
-            "fare_amount", 
-            "hour",
-            "day_of_week",
-            "is_weekend",
-            "month"
-            ]
+    categorical_cols = ["PULocationID", "day_of_week"]
+    analytical_cols = ["passenger_count", "fare_amount", "hour", "month", "is_weekend"]
+
+    indexers = [
+        StringIndexer(inputCol = col, outputCol = f"{col}_idx", handleInvalid="keep")
+        for col in categorical_cols
+    ]
+
+    encoders = [
+        OneHotEncoder(inputCol=f"{col}_idx", outputCol=f"{col}_ohe")
+        for col in categorical_cols
+    ]
     
     assembler = VectorAssembler(
-        inputCols = cols,
+        inputCols = [f"{col}_ohe" for col in categorical_cols] + analytical_cols,
         outputCol = "features"
     )
 
@@ -330,11 +409,13 @@ def base_pipeline():
         labelCol = "tip_pct",
         predictionCol = "prediction",
         maxIter = 50,
-        regParam = 0.0,
+        regParam = 0.1,
         elasticNetParam = 0.0
     )
 
-    pipeline = Pipeline(stages = [assembler, lr])
+    pipeline = Pipeline(
+        stages = indexers + encoders + [assembler, lr]
+    )
 
     return pipeline
 
@@ -442,6 +523,7 @@ def main():
         #df_metricas = calcular_metricas_por_zona(df_unificado)
         #df_poder = calcular_poder_adquisitivo(df_metricas)
         df_final = creacion_variables(df_taxi)
+        df_final = tratar_outliers(df_final)
 
         estudio_analítico(df_final)
 
