@@ -31,8 +31,8 @@ from dotenv import load_dotenv, find_dotenv # Añadido de tu script
 load_dotenv(find_dotenv())
 os.environ['PYSPARK_PYTHON'] = sys.executable
 os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
-os.environ['HADOOP_HOME'] = "C:/hadoop"
-os.environ['HADOOP_TMP_DIR'] = "C:/tmp/hadoop"
+#os.environ['HADOOP_HOME'] = "C:/hadoop"
+#os.environ['HADOOP_TMP_DIR'] = "C:/tmp/hadoop"
 # ¡HEMOS ELIMINADO LA DECLARACIÓN MANUAL DE SPARK_HOME!
 # ---------------------------------------------------
 
@@ -57,8 +57,8 @@ MINIO_CONFIG = {
 
 # Rutas de datos en el bucket
 S3_PATHS = {
-    "taxi": os.getenv("MINIO_TAXI_PATH", "s3a://tu_bucket/datos/limpios/nyc_taxi_clean.parquet"),
-    "fhv": os.getenv("MINIO_FHV_PATH", "s3a://tu_bucket/datos/limpios/fhv_2023_clean.parquet")
+    "taxi": os.getenv("MINIO_TAXI_PATH", "s3a://pd2/taxomanos/limpios/nyc_taxi_clean.parquet"),
+    "fhv": os.getenv("MINIO_FHV_PATH", "s3a://pd2/taxomanos/limpios/fhv_2023_clean.parquet")
 }
 
 # Rutas Locales (Backup)
@@ -118,13 +118,13 @@ def cargar_dataset(spark: SparkSession, nombre_clave: str):
     print(f"\n--- Cargando dataset: {nombre_clave} ---")
     
     # 1. Intento con MinIO
-    try:
-        print(f"Intentando cargar desde MinIO: {S3_PATHS[nombre_clave]}...")
-        df = spark.read.parquet(S3_PATHS[nombre_clave])
-        print(f"✓ {nombre_clave.capitalize()} cargado exitosamente desde MinIO.")
-        return df
-    except Exception as e:
-        print(f"⚠ Fallo en MinIO: {str(e).splitlines()[0]}") # Solo mostramos la primera línea del error
+    #try:
+    #    print(f"Intentando cargar desde MinIO: {S3_PATHS[nombre_clave]}...")
+    #    df = spark.read.parquet(S3_PATHS[nombre_clave])
+    #    print(f"✓ {nombre_clave.capitalize()} cargado exitosamente desde MinIO.")
+    #    return df
+    #except Exception as e:
+    #    print(f"⚠ Fallo en MinIO: {str(e).splitlines()[0]}") # Solo mostramos la primera línea del error
         
     # 2. Intento con Local (Backup)
     try:
