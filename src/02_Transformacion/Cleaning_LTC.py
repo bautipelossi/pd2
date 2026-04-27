@@ -122,7 +122,7 @@ def clean_taxi_data(df: pd.DataFrame) -> pd.DataFrame:
     # ---------------------
     date_cols = ["tpep_pickup_datetime", "tpep_dropoff_datetime"]
     for col in date_cols:
-        df[col] = pd.to_datetime(df[col], errors="coerce")
+        df[col] = pd.to_datetime(df[col], errors="coerce", format="%Y-%m-%dT%H:%M:%S.%f")
 
     # ---------------------------
     # Eliminacion de valores inválidos y nulos
@@ -131,6 +131,7 @@ def clean_taxi_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df[df['trip_distance'] > 0]
     df = df[df['total_amount'] > 0]
     df = df[df['passenger_count'] > 0]
+    df = df[df['fare_amount'] > 0]
 
     # ---------------------------
     # Creacion de variables derivadas
@@ -161,19 +162,27 @@ def main():
 
     print(f"\n📂 Cargando datos desde {RAW_DATA_PATH}")
 
-    df = pd.read_csv(RAW_DATA_PATH, sep=',')
+    chunksize = 500000
+    chunks = pd.read_csv(RAW_DATA_PATH, sep=',', chunksize=chunksize)
+
+    df_list = []
+    for i, chunk in enumerate(chunks):
+        print(f"Procesando chunk {i}")
+
+        chunk_clean = clean_taxi_data(chunk)
+        df_list.append(chunk_clean)
+    
+    df = pd.concat(df_list, ignore_index = True)
 
     explore_data(df)
     basic_queries(df)
 
-    df_clean = clean_taxi_data(df)
-
     print(f"💾 Guardando datos limpios en:\n{OUTPUT_PATH}")
     #df_clean.to_csv(OUTPUT_PATH, index=False)
-    df_clean.to_parquet(OUTPUT_PATH, index=False)
+    df.to_parquet(OUTPUT_PATH, index=False)
 
 
-    print(f"📊 Número de filas finales: {len(df_clean)}")
+    print(f"📊 Número de filas finales: {len(df)}")
 
 
 
