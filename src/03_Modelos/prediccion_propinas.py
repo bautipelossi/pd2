@@ -148,7 +148,8 @@ def cargar_datos_taxi(spark: SparkSession):
                     "tip_amount",
                     "passenger_count",
                     "fare_amount",
-                    "total_amount"
+                    "total_amount",
+                    "trip_distance"
                     ]
 
     columnas_existentes = [col for col in columnas_taxi if col in df_taxi.columns]
@@ -209,6 +210,91 @@ def creacion_variables(df_taxi):
     )
 
     return df_final
+
+def crear_features_avanzadas(df, df_restaurantes=None):
+    """
+    Crea features avanzadas A PRIORI basadas en históricos
+    """
+
+    print("\n🚀 Creando features avanzadas...")
+
+    # ------------------------------------------------------------------
+    # 1. PROPINA MEDIA POR ZONA
+    # ------------------------------------------------------------------
+    avg_tip_zone = df.groupBy("PULocationID").agg(
+        F.mean("tip_amount").alias("avg_tip_zone")
+    )
+
+    df = df.join(avg_tip_zone, on="PULocationID", how="left")
+
+    # ------------------------------------------------------------------
+    # 2. PROPINA MEDIA POR ZONA + HORA
+    # ------------------------------------------------------------------
+    avg_tip_zone_hour = df.groupBy("PULocationID", "hour").agg(
+        F.mean("tip_amount").alias("avg_tip_zone_hour")
+    )
+
+    df = df.join(avg_tip_zone_hour, on=["PULocationID", "hour"], how="left")
+
+    # ------------------------------------------------------------------
+    # 3. ESTIMACIÓN DE DURACIÓN (SI EXISTE)
+    # ------------------------------------------------------------------
+    if "trip_duration" in df.columns:
+        avg_duration = df.groupBy("PULocationID").agg(
+            F.mean("trip_duration").alias("avg_duration_zone")
+        )
+        df = df.join(avg_duration, on="PULocationID", how="left")
+
+    # ------------------------------------------------------------------
+    # 4. DENSIDAD DE RESTAURANTES (SI SE PROPORCIONA DATASET)
+    # ------------------------------------------------------------------
+    """if df_restaurantes is not None:
+
+        # Se asume que tienes columna "PULocationID" o equivalente
+        restaurants_by_zone = df_restaurantes.groupBy("PULocationID").agg(
+            F.count("*").alias("num_restaurants")
+        )
+
+        df = df.join(restaurants_by_zone, on="PULocationID", how="left")
+
+        # Rellenar nulos (zonas sin restaurantes)
+        df = df.fillna({"num_restaurants": 0})"""
+
+    # ------------------------------------------------------------------
+    # 5. TIPO DE ZONA (HEURÍSTICA DE NEGOCIO)
+    # ------------------------------------------------------------------
+
+    # ⚠️ Ejemplo simplificado → puedes refinarlo luego
+    # IDs reales puedes afinarlos con el shapefile si quieres
+
+    df = df.withColumn(
+        "zone_type",
+        F.when(F.col("PULocationID").isin([132, 138]), "airport")  # JFK, LaGuardia aprox
+        .when(F.col("PULocationID").isin([161, 162, 163, 164]), "manhattan_core")
+        .when(F.col("PULocationID") < 100, "residential")
+        .otherwise("other")
+    )
+
+    # Codificación simple (numérica)
+    df = df.withColumn(
+        "zone_type_index",
+        F.when(F.col("zone_type") == "airport", 3)
+        .when(F.col("zone_type") == "manhattan_core", 2)
+        .when(F.col("zone_type") == "residential", 1)
+        .otherwise(0)
+    )
+
+    # ------------------------------------------------------------------
+    # 🔹 6. RELLENO DE NULOS IMPORTANTES
+    # ------------------------------------------------------------------
+    df = df.fillna({
+        "avg_tip_zone": 0,
+        "avg_tip_zone_hour": 0
+    })
+
+    print("✅ Features avanzadas creadas")
+
+    return df
 
 def estudio_analítico(df_final):
     print("\n" + "=" * 60 )
@@ -298,6 +384,7 @@ def estudio_analítico(df_final):
         F.mean("tip_pct").alias("avg_tip_pct")
     ).orderBy("passenger_count").show()
 
+# Estudio y análisis de outliers
 import matplotlib.pyplot as plt
 import seaborn as sns
 def generar_boxplots(df_spark, columnas, output_dir):
@@ -330,21 +417,22 @@ def tratar_outliers(df_spark):
 
     print("\n🚀 Tratamiento de outliers iniciado...")
 
-    # 🔹 Columnas numéricas a analizar
+    # Columnas numéricas a analizar
     columnas = [
         "tip_amount",
         "fare_amount",
-        "total_amount"
+        "total_amount",
+        "trip_distance"
     ]
 
-    # 🔹 Ruta de salida (ajustada a tu estructura)
+    # Ruta de salida (ajustada a tu estructura)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     output_dir = os.path.join(project_root, "src", "Visualizacion", "Boxplots_Propinas")
 
-    # 1️⃣ Generar boxplots ANTES de limpiar
+    # 1) Generar boxplots ANTES de limpiar
     #generar_boxplots(df_spark, columnas, output_dir)
 
-    # 2️⃣ Cálculo de límites IQR
+    # 2) Cálculo de límites IQR
     bounds = {}
 
     for col in columnas:
@@ -357,9 +445,7 @@ def tratar_outliers(df_spark):
         bounds[col] = (lower, upper)
 
 
-
-
-    # 3️⃣ Filtrado de outliers
+    # 3) Filtrado de outliers
     df_clean = df_spark
 
     for col in columnas:
@@ -385,8 +471,22 @@ from pyspark.ml.evaluation import RegressionEvaluator
 def base_pipeline():
 
     # Variables -a priori-
-    categorical_cols = ["PULocationID", "day_of_week"]
-    analytical_cols = ["passenger_count", "fare_amount", "hour", "month", "is_weekend"]
+    categorical_cols = [
+        "PULocationID", 
+        "day_of_week", 
+        "zone_type"
+    ]
+
+    analytical_cols = [
+        "passenger_count", 
+        "fare_amount", 
+        "hour", 
+        "month",
+        "is_weekend",
+        "avg_tip_zone",
+        "avg_tip_zone_hour",
+        "avg_duration_zone"
+    ]
 
     indexers = [
         StringIndexer(inputCol = col, outputCol = f"{col}_idx", handleInvalid="keep")
@@ -426,8 +526,23 @@ from pyspark.ml.regression import GBTRegressor
 
 def production_pipeline():
 
-    categorical_cols = ["PULocationID", "day_of_week"]
-    numeric_cols = ["passenger_count", "fare_amount", "hour", "month", "is_weekend"]
+    # Variables -a priori-
+    categorical_cols = [
+        "PULocationID", 
+        "day_of_week", 
+        "zone_type"
+    ]
+
+    numeric_cols = [
+        "passenger_count", 
+        "fare_amount", 
+        "hour", 
+        "month",
+        "is_weekend",
+        "avg_tip_zone",
+        "avg_tip_zone_hour",
+        "avg_duration_zone"
+    ]
 
     # Indexación
     indexers = [
@@ -578,6 +693,7 @@ def main():
         #df_metricas = calcular_metricas_por_zona(df_unificado)
         #df_poder = calcular_poder_adquisitivo(df_metricas)
         df_final = creacion_variables(df_taxi)
+        df_final = crear_features_avanzadas(df_final)
         df_final = tratar_outliers(df_final)
 
         estudio_analítico(df_final)
