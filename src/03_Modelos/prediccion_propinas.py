@@ -342,7 +342,7 @@ def tratar_outliers(df_spark):
     output_dir = os.path.join(project_root, "src", "Visualizacion", "Boxplots_Propinas")
 
     # 1️⃣ Generar boxplots ANTES de limpiar
-    generar_boxplots(df_spark, columnas, output_dir)
+    #generar_boxplots(df_spark, columnas, output_dir)
 
     # 2️⃣ Cálculo de límites IQR
     bounds = {}
@@ -419,6 +419,55 @@ def base_pipeline():
 
     return pipeline
 
+# ==============================================================================
+# PASO 7: PRODUCTION MODEL
+# ==============================================================================
+from pyspark.ml.regression import GBTRegressor
+
+def production_pipeline():
+
+    categorical_cols = ["PULocationID", "day_of_week"]
+    numeric_cols = ["passenger_count", "fare_amount", "hour", "month", "is_weekend"]
+
+    # Indexación
+    indexers = [
+        StringIndexer(inputCol=col, outputCol=f"{col}_idx", handleInvalid="keep")
+        for col in categorical_cols
+    ]
+
+    # One Hot Encoding
+    encoders = [
+        OneHotEncoder(inputCol=f"{col}_idx", outputCol=f"{col}_ohe")
+        for col in categorical_cols
+    ]
+
+    # Ensamblado
+    assembler = VectorAssembler(
+        inputCols=[f"{col}_ohe" for col in categorical_cols] + numeric_cols,
+        outputCol="features"
+    )
+
+    # MODELO FINAL
+    gbt = GBTRegressor(
+        featuresCol="features",
+        labelCol="tip_pct",
+        predictionCol="prediction",
+        maxIter=100,
+        maxDepth=5,
+        stepSize=0.1,
+        subsamplingRate=0.8,
+        seed=42
+    )
+
+    pipeline = Pipeline(
+        stages=indexers + encoders + [assembler, gbt]
+    )
+
+    return pipeline
+
+# ============================================
+# PASO 8: FUNCIÓN PIPELINE COMPLETO
+# ============================================
 def data_split(df_final, train_ratio: float = 0.8):
     """
     Divide los datos en entrenamiento y test
@@ -472,10 +521,7 @@ def evaluate_model(model, test_df):
 
     return predictions
 
-# ============================================
-# 🔹 6. FUNCIÓN PRINCIPAL (PIPELINE COMPLETO)
-# ============================================
-def run_linear_regression_baseline(df):
+def run_model(df, model):
     """
     Ejecuta todo el flujo:
     preparación, split, entrenamiento y evaluación
@@ -490,7 +536,10 @@ def run_linear_regression_baseline(df):
     train_df, test_df = data_split(df)
     
     # 3. Pipeline
-    pipeline = base_pipeline()
+    if model == "baseline":
+        pipeline = base_pipeline()
+    else:
+        pipeline = production_pipeline()
     
     # 4. Entrenar
     model = train_model(pipeline, train_df)
@@ -498,7 +547,7 @@ def run_linear_regression_baseline(df):
     # 5. Evaluar
     predictions = evaluate_model(model, test_df)
     
-    print("✅ Baseline model completed")
+    print("✅ Production model completed")
     
     return model, predictions
 
@@ -527,7 +576,8 @@ def main():
 
         estudio_analítico(df_final)
 
-        model, predictions = run_linear_regression_baseline(df_final)
+        base_model, base_predicts = run_model(df_final, "baseline")
+        prod_model, prod_predicts = run_model(df_final, "gbt")
         
         spark.stop()
         
