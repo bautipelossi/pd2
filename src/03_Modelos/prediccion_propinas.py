@@ -452,8 +452,8 @@ def production_pipeline():
         featuresCol="features",
         labelCol="tip_pct",
         predictionCol="prediction",
-        maxIter=100,
-        maxDepth=5,
+        maxIter=30,
+        maxDepth=3,
         stepSize=0.1,
         subsamplingRate=0.8,
         seed=42
@@ -514,20 +514,23 @@ def evaluate_model(model, test_df):
     mae = evaluator_mae.evaluate(predictions)
     r2 = evaluator_r2.evaluate(predictions)
 
-    print("Evaluacón del modelo base:")
+    print("Evaluación del modelo:")
     print(f"RMSE: {rmse:.4f}")
     print(f"MAE: {mae:.4f}")
     print(f"R2: {r2:.4f}")
 
     return predictions
 
-def run_model(df, model):
+def run_model(df, modelo):
     """
     Ejecuta todo el flujo:
     preparación, split, entrenamiento y evaluación
     """
     
-    print("🚀 Starting Linear Regression Baseline...")
+    if modelo == "baseline":
+        print("🚀 Starting Linear Regression Baseline...")
+    else:
+        print("🚀 Starting Gradient Boost Tree...")
     
     # 1. Preparar datos
     df = df.drop("tip_amount", "total_amount")
@@ -536,7 +539,7 @@ def run_model(df, model):
     train_df, test_df = data_split(df)
     
     # 3. Pipeline
-    if model == "baseline":
+    if modelo == "baseline":
         pipeline = base_pipeline()
     else:
         pipeline = production_pipeline()
@@ -547,7 +550,10 @@ def run_model(df, model):
     # 5. Evaluar
     predictions = evaluate_model(model, test_df)
     
-    print("✅ Production model completed")
+    if modelo == "baseline":
+        print("✅ Baseline model completed")
+    else:
+        print("✅ Production model completed")
     
     return model, predictions
 
