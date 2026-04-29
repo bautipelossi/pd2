@@ -209,12 +209,21 @@ def plot_boxplot(demanda, OUT_DIR):
 # SEMANAL
 # --------------------------------------------------
 def build_weekly_demand(df):
-    return (
+    # 1. demanda por día real
+    demanda_diaria = (
         df
-        .groupBy("dia_semana", "hora")
+        .groupBy("fecha", "dia_semana", "hora")
         .agg(F.count("*").alias("demanda"))
     )
 
+    # 2. media por día de la semana y hora
+    demanda_semana = (
+        demanda_diaria
+        .groupBy("dia_semana", "hora")
+        .agg(F.avg("demanda").alias("demanda"))
+    )
+
+    return demanda_semana
 def plot_weekly_curves(demanda_semana, OUT_DIR):
     df = demanda_semana.toPandas()
 
@@ -254,6 +263,37 @@ def plot_weekly_heatmap(demanda_semana, OUT_DIR):
     plt.tight_layout()
     plt.savefig(OUT_DIR / "heatmap_dias_semana.png")
     plt.close()
+    
+def plot_global_demand_distribution(demanda, OUT_DIR):
+    print("[NEW] Distribución global por nivel de demanda...")
+
+    df = (
+        demanda
+        .groupBy("hora", "nivel_demanda")
+        .agg(F.count("*").alias("count"))
+    )
+
+    total = df.groupBy("hora").agg(F.sum("count").alias("total"))
+
+    df = (
+        df.join(total, "hora")
+        .withColumn("ratio", F.col("count") / F.col("total"))
+        .toPandas()
+    )
+
+    pivot = df.pivot(index="hora", columns="nivel_demanda", values="ratio").fillna(0)
+    pivot = pivot[["baja", "media", "alta"]]  # orden fijo
+
+    plt.figure(figsize=(12,6))
+    plt.stackplot(pivot.index, pivot.T, labels=pivot.columns)
+
+    plt.legend(loc="upper left")
+    plt.title("Distribución global de niveles de demanda")
+    plt.xlabel("Hora")
+    plt.ylabel("Proporción")
+    plt.tight_layout()
+    plt.savefig(OUT_DIR / "stacked_demanda_global.png")
+    plt.close()
 
 # --------------------------------------------------
 # GRID CORREGIDO
@@ -273,6 +313,63 @@ def build_full_grid(demanda, zones):
         .join(demanda, on=["pulocationid", "hora"], how="left")
         .fillna({"demanda": 0})
     )
+    
+def map_dominant_demand(demanda, DATA_DIR, OUT_DIR):
+    print("[NEW] Mapa de demanda dominante por zona...")
+
+    from pyspark.sql.window import Window
+
+    modo = (
+        demanda
+        .groupBy("pulocationid", "nivel_demanda")
+        .agg(F.count("*").alias("freq"))
+    )
+
+    w = Window.partitionBy("pulocationid").orderBy(F.desc("freq"))
+
+    modo = (
+        modo
+        .withColumn("rank", F.row_number().over(w))
+        .filter(F.col("rank") == 1)
+        .select("pulocationid", "nivel_demanda")
+        .toPandas()
+    )
+
+    zones = gpd.read_file(DATA_DIR / "taxi_zones" / "taxi_zones.shp").to_crs(epsg=4326)
+
+    zones = zones.merge(
+        modo,
+        left_on="LocationID",
+        right_on="pulocationid",
+        how="left"
+    )
+
+    color_map = {
+        "baja": "#2ca25f",
+        "media": "#feb24c",
+        "alta": "#de2d26"
+    }
+
+    mapa = folium.Map(location=[40.7128, -74.0060], zoom_start=11, tiles="CartoDB positron")
+
+    for _, row in zones.iterrows():
+        if pd.isna(row["nivel_demanda"]):
+            continue
+
+        folium.GeoJson(
+            row["geometry"],
+            style_function=lambda x, c=row["nivel_demanda"]: {
+                "fillColor": color_map.get(c, "#999"),
+                "color": "black",
+                "weight": 0.4,
+                "fillOpacity": 0.7
+            },
+            tooltip=f"{row.get('zone','')} → {row['nivel_demanda']}"
+        ).add_to(mapa)
+
+    mapa.save(OUT_DIR / "mapa_demanda_dominante.html")
+    
+
 
 # --------------------------------------------------
 # MAPAS (sin cambios funcionales)
@@ -288,6 +385,8 @@ def add_legend(mapa, title="Demanda"):
     <i style="background:#de2d26;width:10px;height:10px;display:inline-block;"></i> Alta
     </div>"""
     mapa.get_root().html.add_child(folium.Element(legend_html))
+    
+
 
 def map_global(demanda, DATA_DIR, OUT_DIR):
     print("Generando mapa GLOBAL...")
@@ -661,6 +760,11 @@ def main():
     print("[8] Generando boxplot...")
     plot_boxplot(demanda, OUT_DIR)
 
+    plot_global_demand_distribution(demanda, OUT_DIR)
+
+
+    map_dominant_demand(demanda, DATA_DIR, OUT_DIR)
+
     # --------------------------------------------------
     # 4. ANÁLISIS SEMANAL
     # --------------------------------------------------
@@ -672,6 +776,7 @@ def main():
 
     print("[11] Generando heatmap semanal...")
     plot_weekly_heatmap(demanda_semana, OUT_DIR)
+
 
     # --------------------------------------------------
     # 5. MAPAS
