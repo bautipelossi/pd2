@@ -237,9 +237,9 @@ def creacion_variables(df_taxi):
 
     return df_final
 
-def crear_features_avanzadas(df, df_restaurantes=None):
+def crear_features_avanzadas(train_df, test_df):
     """
-    Crea features avanzadas A PRIORI basadas en históricos
+    Crea features avanzadas A PRIORI basadas en históricos (sin leakage - usando solo train)
     """
 
     print("\n🚀 Creando features avanzadas...")
@@ -247,52 +247,74 @@ def crear_features_avanzadas(df, df_restaurantes=None):
     # ------------------------------------------------------------------
     # 1. PROPINA MEDIA POR ZONA
     # ------------------------------------------------------------------
-    avg_tip_zone = df.groupBy("PULocationID").agg(
-        F.mean("tip_amount").alias("avg_tip_zone")
+    avg_tip_zone = train_df.groupBy("PULocationID").agg(
+        F.mean("tip_pct").alias("avg_tip_zone")
     )
 
-    df = df.join(avg_tip_zone, on="PULocationID", how="left")
+    train_df = train_df.join(avg_tip_zone, on="PULocationID", how="left")
+    test_df = test_df.join(avg_tip_zone, on="PULocationID", how="left")
 
     # ------------------------------------------------------------------
     # 2. PROPINA MEDIA POR ZONA + HORA
     # ------------------------------------------------------------------
-    avg_tip_zone_hour = df.groupBy("PULocationID", "hour").agg(
-        F.mean("tip_amount").alias("avg_tip_zone_hour")
+    avg_tip_zone_hour = train_df.groupBy("PULocationID", "hour").agg(
+        F.mean("tip_pct").alias("avg_tip_zone_hour")
     )
 
-    df = df.join(avg_tip_zone_hour, on=["PULocationID", "hour"], how="left")
+    train_df = train_df.join(avg_tip_zone_hour, on=["PULocationID", "hour"], how="left")
+    test_df = test_df.join(avg_tip_zone_hour, on=["PULocationID", "hour"], how="left")
 
     # ------------------------------------------------------------------
     # 3. ESTIMACIÓN DE DURACIÓN (SI EXISTE)
     # ------------------------------------------------------------------
-    if "trip_duration_min" in df.columns:
-        avg_duration = df.groupBy("PULocationID").agg(
+    if "trip_duration_min" in train_df.columns:
+        avg_duration = train_df.groupBy("PULocationID").agg(
             F.mean("trip_duration_min").alias("avg_duration_zone")
         )
-        df = df.join(avg_duration, on="PULocationID", how="left")
+        train_df = train_df.join(avg_duration, on="PULocationID", how="left")
+        test_df = test_df.join(avg_duration, on="PULocationID", how="left")
+
 
     # ------------------------------------------------------------------
-    # 4. DENSIDAD DE RESTAURANTES (SI SE PROPORCIONA DATASET)
+    # 4. TARIFA MEDIA POR ZONA (proxy socioeconómico)
     # ------------------------------------------------------------------
-    """if df_restaurantes is not None:
+    avg_fare_zone = train_df.groupBy("PULocationID").agg(
+        F.mean("fare_amount").alias("avg_fare_zone")
+    )
 
-        # Se asume que tienes columna "PULocationID" o equivalente
-        restaurants_by_zone = df_restaurantes.groupBy("PULocationID").agg(
-            F.count("*").alias("num_restaurants")
-        )
+    train_df = train_df.join(avg_fare_zone, on="PULocationID", how="left")
+    test_df = test_df.join(avg_fare_zone, on="PULocationID", how="left")
 
-        df = df.join(restaurants_by_zone, on="PULocationID", how="left")
+    # ---------------------------------------------------------
+    # 5. VOLUMEN DE VIAJES POR ZONA
+    # ---------------------------------------------------------
+    trip_count_zone = train_df.groupBy("PULocationID").agg(
+        F.count("*").alias("trip_count_zone")
+    )
 
-        # Rellenar nulos (zonas sin restaurantes)
-        df = df.fillna({"num_restaurants": 0})"""
+    train_df = train_df.join(trip_count_zone, on="PULocationID", how="left")
+    test_df = test_df.join(trip_count_zone, on="PULocationID", how="left")
+
+    # ---------------------------------------------------------
+    # 6. FEATURE COMPORTAMIENTO
+    # ---------------------------------------------------------
+    train_df = train_df.withColumn(
+        "fare_per_passenger",
+        F.col("fare_amount") / F.when(F.col("passenger_count") > 0, F.col("passenger_count")).otherwise(1)
+    )
+
+    test_df = test_df.withColumn(
+        "fare_per_passenger",
+        F.col("fare_amount") / F.when(F.col("passenger_count") > 0, F.col("passenger_count")).otherwise(1)
+    )
 
     # ------------------------------------------------------------------
-    # 5. TIPO DE ZONA (HEURÍSTICA DE NEGOCIO)
+    # 7. TIPO DE ZONA (HEURÍSTICA DE NEGOCIO)
     # ------------------------------------------------------------------
 
     # ⚠️ Ejemplo simplificado → puedes refinarlo luego
     # IDs reales puedes afinarlos con el shapefile si quieres
-
+    """
     df = df.withColumn(
         "zone_type",
         F.when(F.col("PULocationID").isin([132, 138]), "airport")  # JFK, LaGuardia aprox
@@ -308,19 +330,25 @@ def crear_features_avanzadas(df, df_restaurantes=None):
         .when(F.col("zone_type") == "manhattan_core", 2)
         .when(F.col("zone_type") == "residential", 1)
         .otherwise(0)
-    )
+    )"""
 
     # ------------------------------------------------------------------
-    # 6. RELLENO DE NULOS IMPORTANTES
+    # 8. RELLENO DE NULOS IMPORTANTES
     # ------------------------------------------------------------------
-    df = df.fillna({
+    fill_values = {
         "avg_tip_zone": 0,
-        "avg_tip_zone_hour": 0
-    })
+        "avg_tip_zone_hour": 0,
+        "avg_fare_zone": 0,
+        "trip_count_zone": 0,
+        "avg_duration_zone": 0
+    }
+
+    train_df = train_df.fillna(fill_values)
+    test_df = test_df.fillna(fill_values)
 
     print("✅ Features avanzadas creadas")
 
-    return df
+    return train_df, test_df
 
 def estudio_analítico(df_final):
     print("\n" + "=" * 60 )
@@ -479,6 +507,9 @@ def tratar_outliers(df_spark):
         df_clean = df_clean.filter(
             (F.col(col) >= lower) & (F.col(col) <= upper)
         )
+    
+    # 4) Limpiamos "passenger_count"
+    df_clean = df_clean[df_clean["passenger_count"] <= 3]
 
     print("✅ Outliers eliminados correctamente")
 
@@ -499,8 +530,7 @@ def base_pipeline():
     # Variables -a priori-
     categorical_cols = [
         "PULocationID", 
-        "day_of_week", 
-        "zone_type"
+        "day_of_week"
     ]
 
     analytical_cols = [
@@ -508,24 +538,16 @@ def base_pipeline():
         "fare_amount", 
         "hour", 
         "month",
-        "is_weekend",
-        "avg_tip_zone",
-        "avg_tip_zone_hour",
-        "avg_duration_zone"
+        "is_weekend"
     ]
 
     indexers = [
         StringIndexer(inputCol = col, outputCol = f"{col}_idx", handleInvalid="keep")
         for col in categorical_cols
     ]
-
-    encoders = [
-        OneHotEncoder(inputCol=f"{col}_idx", outputCol=f"{col}_ohe")
-        for col in categorical_cols
-    ]
     
     assembler = VectorAssembler(
-        inputCols = [f"{col}_ohe" for col in categorical_cols] + analytical_cols,
+        inputCols = [f"{col}_idx" for col in categorical_cols] + analytical_cols,
         outputCol = "features"
     )
 
@@ -534,13 +556,12 @@ def base_pipeline():
         featuresCol = "features",
         labelCol = "tip_pct",
         predictionCol = "prediction",
-        maxIter = 50,
-        regParam = 0.1,
-        elasticNetParam = 0.0
+        maxIter = 20,
+        regParam = 0.1
     )
 
     pipeline = Pipeline(
-        stages = indexers + encoders + [assembler, lr]
+        stages = indexers + [assembler, lr]
     )
 
     return pipeline
@@ -554,20 +575,23 @@ def production_pipeline():
 
     # Variables -a priori-
     categorical_cols = [
-        "PULocationID", 
-        "day_of_week", 
-        "zone_type"
+        #"zone_type",  
+        "day_of_week"
     ]
 
     numeric_cols = [
+        "PULocationID", 
         "passenger_count", 
         "fare_amount", 
-        "hour", 
+        "hour",
         "month",
         "is_weekend",
         "avg_tip_zone",
         "avg_tip_zone_hour",
-        "avg_duration_zone"
+        "avg_duration_zone",
+        "avg_fare_zone",
+        "trip_count_zone",
+        "fare_per_passenger"
     ]
 
     # Indexación
@@ -576,15 +600,9 @@ def production_pipeline():
         for col in categorical_cols
     ]
 
-    # One Hot Encoding
-    encoders = [
-        OneHotEncoder(inputCol=f"{col}_idx", outputCol=f"{col}_ohe")
-        for col in categorical_cols
-    ]
-
     # Ensamblado
     assembler = VectorAssembler(
-        inputCols=[f"{col}_ohe" for col in categorical_cols] + numeric_cols,
+        inputCols=[f"{col}_idx" for col in categorical_cols] + numeric_cols,
         outputCol="features"
     )
 
@@ -601,7 +619,7 @@ def production_pipeline():
     )
 
     pipeline = Pipeline(
-        stages=indexers + encoders + [assembler, gbt]
+        stages=indexers + [assembler, gbt]
     )
 
     return pipeline
@@ -675,20 +693,27 @@ def run_model(df, modelo):
     
     # 1. Preparar datos
     df = df.drop("tip_amount", "total_amount")
+
+    # 2. Cachear datos (mejora coste temporal)
+    df = df.cache()
+    df.count()
     
-    # 2. Split
+    # 3. Split
     train_df, test_df = data_split(df)
+
+    # 4. Features sin leakage
+    train_df, test_df = crear_features_avanzadas(train_df, test_df)
     
-    # 3. Pipeline
+    # 5. Pipeline
     if modelo == "baseline":
         pipeline = base_pipeline()
     else:
         pipeline = production_pipeline()
     
-    # 4. Entrenar
+    # 6. Entrenar
     model = train_model(pipeline, train_df)
     
-    # 5. Evaluar
+    # 7. Evaluar
     predictions = evaluate_model(model, test_df)
     
     if modelo == "baseline":
@@ -719,7 +744,7 @@ def main():
         #df_metricas = calcular_metricas_por_zona(df_unificado)
         #df_poder = calcular_poder_adquisitivo(df_metricas)
         df_final = creacion_variables(df_taxi)
-        df_final = crear_features_avanzadas(df_final)
+        #df_final = crear_features_avanzadas(df_final)
         df_final = tratar_outliers(df_final)
 
         estudio_analítico(df_final)
