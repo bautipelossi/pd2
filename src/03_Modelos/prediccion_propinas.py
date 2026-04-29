@@ -107,6 +107,31 @@ def crear_spark_session() -> SparkSession:
     print(f"✓ Spark Session creada con éxito")
     return spark
 
+import os
+import shutil
+def limpiar_tmp_spark(tmp_dir="C:/tmp/hadoop"):
+    """
+    Limpia el contenido temporal de Spark sin borrar la carpeta base
+    """
+
+    if not os.path.exists(tmp_dir):
+        return
+
+    print(f"🧹 Limpiando contenido de: {tmp_dir}")
+
+    for item in os.listdir(tmp_dir):
+        item_path = os.path.join(tmp_dir, item)
+
+        try:
+            if os.path.isdir(item_path):
+                shutil.rmtree(item_path, ignore_errors=True)
+            else:
+                os.remove(item_path)
+        except Exception as e:
+            print(f"⚠️ No se pudo borrar {item_path}: {e}")
+
+    print("✅ Limpieza completada")
+
 # ==============================================================================
 # PASO 4: CARGAR DATOS (INTENTO MINIO -> BACKUP LOCAL)
 # ==============================================================================
@@ -149,7 +174,8 @@ def cargar_datos_taxi(spark: SparkSession):
                     "passenger_count",
                     "fare_amount",
                     "total_amount",
-                    "trip_distance"
+                    "trip_distance",
+                    "trip_duration_min"
                     ]
 
     columnas_existentes = [col for col in columnas_taxi if col in df_taxi.columns]
@@ -239,9 +265,9 @@ def crear_features_avanzadas(df, df_restaurantes=None):
     # ------------------------------------------------------------------
     # 3. ESTIMACIÓN DE DURACIÓN (SI EXISTE)
     # ------------------------------------------------------------------
-    if "trip_duration" in df.columns:
+    if "trip_duration_min" in df.columns:
         avg_duration = df.groupBy("PULocationID").agg(
-            F.mean("trip_duration").alias("avg_duration_zone")
+            F.mean("trip_duration_min").alias("avg_duration_zone")
         )
         df = df.join(avg_duration, on="PULocationID", how="left")
 
@@ -285,7 +311,7 @@ def crear_features_avanzadas(df, df_restaurantes=None):
     )
 
     # ------------------------------------------------------------------
-    # 🔹 6. RELLENO DE NULOS IMPORTANTES
+    # 6. RELLENO DE NULOS IMPORTANTES
     # ------------------------------------------------------------------
     df = df.fillna({
         "avg_tip_zone": 0,
@@ -580,9 +606,9 @@ def production_pipeline():
 
     return pipeline
 
-# ============================================
+# ==============================================================================
 # PASO 8: FUNCIÓN PIPELINE COMPLETO
-# ============================================
+# ==============================================================================
 def data_split(df_final, train_ratio: float = 0.8):
     """
     Divide los datos en entrenamiento y test
@@ -673,7 +699,7 @@ def run_model(df, modelo):
     return model, predictions
 
 
-# ==============================================================================
+# ==============================================================================                
 # FUNCIÓN PRINCIPAL
 # ==============================================================================
 
@@ -698,11 +724,33 @@ def main():
 
         estudio_analítico(df_final)
 
+        import time
+
+        # -----------------------------------------------------------------------------
+        # ENTRENAMOS BASELINE
+        # -----------------------------------------------------------------------------
+        base_start = time.time()
+
         base_model, base_predicts = run_model(df_final, "baseline")
+
+        base_stop = time.time()
+        base_time = (base_stop - base_start)/60
+        print(f"Tiempo de entrenamiento del modelo Baseline: {base_time:.4f} minutos")
+
+        # -----------------------------------------------------------------------------
+        # ENTRENAMOS PRODUCTION
+        # -----------------------------------------------------------------------------
+        prod_start = time.time()
+
         prod_model, prod_predicts = run_model(df_final, "gbt")
         
-        spark.stop()
+        prod_stop = time.time()
+        prod_time = (prod_stop - prod_start)/60
+        print(f"Tiempo de entrenamiento del GBT Regressor: {prod_time:.4f} minutos")
         
+        spark.stop()
+        limpiar_tmp_spark()
+
     except Exception as e:
         print(f"\n❌ Error durante la ejecución: {e}")
         import traceback
