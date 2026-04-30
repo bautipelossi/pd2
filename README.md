@@ -12,8 +12,10 @@
 2. [Orígenes de Datos](#origenes)
 3. [Estructura del Proyecto](#estructura)
 4. [Instalación y Requisitos](#instalacion)
-5. [Uso y Ejecución](#uso)
-7. [Autores (Grupo Taxómanos)](#autores)
+5. [Variables de Entorno (MinIO y rutas)](#variables)
+6. [Uso y Ejecución](#uso)
+7. [Trabajo realizado](#trabajo)
+8. [Autores (Grupo Taxómanos)](#autores)
 
 ---
 
@@ -57,46 +59,34 @@ Los datos utilizados en este proyecto provienen de fuentes públicas y han sido 
 El repositorio está organizado de forma modular, separando claramente los datos crudos, los datos procesados y el código fuente:
 
 ```text
-📁 pd2/
-│
-├── 📁 /               # Directorio principal de la entrega
-│   │
-|   |
-│   ├── 📁 src/                    # Código fuente del proyecto
-│   │   │
-│   │   ├── 📁 Extraccion/         # Scripts de Extracción
-│   │   │   ├── ClimateNYC.py        
-│   │   │   ├── FHV.py
-│   │   │   ├── LTC.py
-│   │   │   ├── NYCevents.py  
-│   │   │   └── SportEventsNYC.py
-│   │   │
-│   │   ├── 📁 Transformacion/     # Scripts de Transformación y Limpieza
-│   │   │   ├── Cleaning_FHV.py      
-│   │   │   ├── Cleaning_LTC.py
-│   │   │   ├── Cleaning_NYCevents.py        
-│   │       ├── agregaciones.py
-│   │       ├── agregaciones_hora.py      
-│   │   │   └── PreprocesamientoVolumenTrafico.py 
-│   │   │
-│   │   └── 📁 Visualizacion/      # Scripts para el análisis cruzado y generación de gráficos
-│   │       ├── YLC_vs_FHV_clima.py
-│   │       ├── VisualizacionTrafico.py
-│   │       ├── agregaciones_hora.py
-│   │       ├── prueba_barrios.py
-│   │       ├── visualizacion_agregaciones_con_trafico.py
-│   │       ├── visualizacionfhv.py
-|   |       ├── Visualizacion_Events.py
-│   │       │
-│   │       ├── 📁 Mapa_Interactivo_FHV_TLC/ # Outputs: Gráficos HTML interactivos relacionando solo FHV y TLC
-│   │       │
-│   │       ├── 📁 Reporte_Trafico_NYC/      # Outputs: Gráficos HTML interactivos relacionados con el tráfico
-|   |       |
-|   |       └── 📁 YLC_FHV_clima/            # Outputs: Gráfico HTML interactivo analizando el crecimiento de demanda de FHV y YLC 
-│
-├── requirements.txt               # Archivo para instalar las librerías del proyecto
-│
-└── README.md                      # Este archivo de documentación
+pd2/
+├── .env                           # Variables de entorno locales (no commitear)
+├── .python-version                # Version de Python para el proyecto
+├── uv.lock                        # Lockfile de uv
+├── pyproject.toml                 # Dependencias y metadatos
+├── requirements.txt               # Dependencias (compatibilidad pip)
+├── main.py                         
+├── PruebaMinio.py                 # Pruebas de conexion a MinIO
+├── borrar_modelos_minio.py        # Limpieza de modelos en MinIO
+├── datos/
+│   ├── crudos/                    # Datos originales
+│   ├── limpios/                   # Datos procesados (parquet, etc.)
+│   └── salidas_html/              # Mapas/outputs HTML
+├── outputs/
+│   └── modelos/
+│       └── baseline/              # Modelos y metricas base
+├── taxi_zones/                    # Shapefiles de Taxi Zones
+├── temp/                          # Temporales de Spark
+└── src/
+   ├── 01_Extraccion/             # Descarga de fuentes (TLC, clima, eventos, etc.)
+   ├── 02_Transformacion/         # Limpieza, parquet y agregaciones
+   ├── 03_Modelos/                # Modelos ML, MinIO, patrones, predicciones
+   ├── 04_Visualizaciones/        # Dashboards y mapas interactivos
+   ├── 05_extraccion2/            # Extraccion fase 2
+   ├── 06_agregacion2/            # Cruces y agregaciones fase 2
+   ├── 07_score/                  # Scoring y validaciones fase 2
+   ├── 08_despliegue/             # HTML finales para despliegue
+   └── Visualizacion/             # Visualizaciones modelos
 ```
 
 ---
@@ -106,74 +96,129 @@ El repositorio está organizado de forma modular, separando claramente los datos
 
 Para replicar este proyecto en tu máquina local, sigue estos pasos:
 
+Requisitos base: Python >= 3.11.
+
 1. **Clona el repositorio:**
    ```bash
    git clone https://github.com/bautipelossi/pd2.git
    cd pd2
    ```
 
-2. **Crea un entorno virtual**
+2. **Instala dependencias con uv (recomendado):**
    ```bash
-   python -m venv env
-   source env/bin/activate  # En Windows: env\Scripts\activate
+   uv venv
+   uv sync
    ```
 
-3. **Instala las dependencias**
+3. **Alternativa con pip:**
    ```bash
+   python -m venv .venv
+   .venv\Scripts\activate  # En Windows
    pip install -r requirements.txt
    ```
 
-Para el uso de MinIO también es necesaria la creación de un .env con los siguientes parámetros
-   ```bash
-   MINIO_ENDPOINT=minio.fdi.ucm.es
-   MINIO_ACCESS_KEY=TU_ACESS_KEY_PERSONAL
-   MINIO_SECRET_KEY=TU_SECRET_KEY_PERSONAL
-   MINIO_BUCKET=pd2
-   MINIO_GROUP_PATH=taxomanos
-   ```
+<a id="variables"></a>
+## Variables de Entorno (MinIO y rutas)
+
+Crea un archivo .env en la raiz del proyecto (no commitear) con las variables que usa la capa de MinIO y los modelos:
+
+```bash
+MINIO_ENDPOINT=https://minio.fdi.ucm.es
+MINIO_ACCESS_KEY=TU_ACCESS_KEY
+MINIO_SECRET_KEY=TU_SECRET_KEY
+MINIO_BUCKET=pd2
+MINIO_GROUP_PATH=taxomanos
+MINIO_PATH_STYLE=true
+MINIO_TAXI_PATH=s3a://pd2/taxomanos/limpios/nyc_taxi_clean.parquet
+MINIO_FHV_PATH=s3a://pd2/taxomanos/limpios/fhv_2023_clean.parquet
+
+# Backups locales opcionales
+LOCAL_TAXI_PATH=datos/limpios/nyc_taxi_clean.parquet
+LOCAL_FHV_PATH=datos/limpios/fhv_2023_clean.parquet
+RESTAURANTS_CSV_PATH=datos/crudos/restaurantes_nyc_clean.csv
+```
 
 ---
 
 <a id="uso"></a>
 ##  Uso y Ejecución
 
-Para replicar el análisis de este proyecto correctamente, debes seguir el flujo lógico de los datos (Pipeline ETL). El orden de ejecución de las carpetas es el siguiente: **1. Extracción ➔ 2. Transformación ➔ 3. Visualización** (ojo con las rutas de los datos).
+Para replicar el analisis, sigue el flujo del pipeline. El orden base es:
+**1. Extraccion ➔ 2. Transformacion ➔ 3. Modelos/Scoring ➔ 4. Visualizaciones/Despliegue**
 
 ### Paso 1: Extracción de Datos
-Primero, ejecuta los scripts de la carpeta `Extraccion` para obtener los datos crudos (clima, eventos, viajes de FHV/LTC, etc.):
+Primero, ejecuta los scripts de la carpeta `src/01_Extraccion` para obtener los datos crudos (clima, eventos, viajes de FHV/LTC, etc.):
 
 ```bash
-python src/Extraccion/FHV.py
-python src/Extraccion/LTC.py
+python src/01_Extraccion/FHV.py
+python src/01_Extraccion/LTC.py
 # (Ejecutar el resto de scripts según los datos que necesites actualizar)
 ```
 
 ### Paso 2: Transformación y Limpieza
 
-Una vez tengas los datos originales, ejecuta los scripts de la carpeta `Transformacion`. Estos scripts limpiarán los datos, unificarán formatos y generarán los archivos `.parquet` optimizados y listos para el análisis:
+Una vez tengas los datos originales, ejecuta los scripts de la carpeta `src/02_Transformacion`. Estos scripts limpiaran los datos, unificaran formatos y generaran los archivos `.parquet` optimizados y listos para el analisis:
 
 ```bash
-python /src/Transformacion/Cleaning_FHV.py
-python /src/Transformacion/Cleaning_LTC.py
-python /src/Transformacion/PreprocesamientoVolumenTrafico.py
+python src/02_Transformacion/Cleaning_FHV.py
+python src/02_Transformacion/Cleaning_LTC.py
+python src/02_Transformacion/PreprocesamientoVolumenTrafico.py
 # (Continúa con los demás scripts de limpieza correspondientes)
 ```
 
-### Paso 3: Visualización
+### Paso 3: Modelos y scoring
+
+#### Fase 1 (modelos)
+Entrenamiento y evaluacion de modelos base sobre datasets limpios para predicciones (propinas, demanda maxima) y patrones. Esta fase genera artefactos en `outputs/` y puede apoyarse en MinIO si esta configurado.
+
+#### Fase 2 (scoring y despliegue web)
+Pipeline de extraccion, cruce y scoring con foco en resultados listos para consumo visual. Los outputs finales se publican como HTML en `src/08_despliegue` y mapas diarios.
+
+Entrena o valida modelos segun el objetivo:
+
+```bash
+python src/03_Modelos/baseline_1a.py
+python src/03_Modelos/prediccion_propinas.py
+python src/03_Modelos/prediccion_maxima_demanda.py
+```
+
+Para la fase 2 (extraccion/agregacion/scoring):
+
+```bash
+python src/05_extraccion2/generar_target_fase2.py
+python src/06_agregacion2/cruce_fase2.py
+python src/07_score/score_rf.py
+```
+
+### Paso 4: Visualizaciones
 
 Con los datos procesados, finalmente puedes ejecutar los scripts de la carpeta `Visualizacion` para generar los gráficos interactivos. Tienes varios scripts dependiendo del análisis que quieras realizar:
 
-* Para el análisis general de demanda cruzada con el clima:
+* Para analisis general de demanda cruzada con el clima:
   ```bash
-  python /src/Visualizacion/LTC_vs_FHV_clima.py
+   python src/Visualizacion/YLC_vs_FHV_clima.py
   ```
   (Los resultados de visualización general se exportarán a la subcarpeta Mapa_Interactivo_FHV_TLC/)
 
-* Para la comparativa cruzada de demanda vs. tráfico vehicular:
+* Para la comparativa cruzada de demanda vs. trafico vehicular:
   ```bash
-  python /src/Visualizacion/visualizacion_agregaciones_con_trafico.py
+   python src/Visualizacion/visualizacion_agregaciones_con_trafico.py
   ```
   (Los resultados y gráficos .html interactivos se guardarán automáticamente en la subcarpeta Reporte_Trafico_NYC/)
+
+Además, en `src/04_Visualizaciones` hay dashboards y simuladores interactivos listos para ejecutar.
+
+---
+
+<a id="trabajo"></a>
+## Trabajo realizado
+
+* Integracion de multiples fuentes (TLC, clima, eventos, trafico, restaurantes y alquileres).
+* Limpieza y normalizacion de datasets masivos y conversion a Parquet.
+* Agregaciones temporales y espaciales para analisis de demanda.
+* Fase 1: modelado base y modelos de prediccion (propinas, maxima demanda) con artefactos en `outputs/`.
+* Fase 2: pipeline de extraccion, cruce, scoring y validacion con resultados listos para despliegue.
+* Despliegue web: dashboards y HTML en `src/08_despliegue` y `src/04_Visualizaciones`.
 
 ---
 
