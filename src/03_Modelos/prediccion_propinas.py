@@ -235,6 +235,14 @@ def creacion_variables(df_taxi):
         "tip_pct", (F.col("tip_amount") / F.col("fare_amount")) * 100
     )
 
+    df_final = df_final.withColumn(
+        "tip_class",
+        F.when(F.col("tip_pct") == 0, 0),
+        F.when(F.col("tip_pct") < 10, 1),
+        F.when(F.col("tip_pct") < 20, 2),
+        F.otherwise(3)
+    )
+
     return df_final
 
 def crear_features_avanzadas(train_df, test_df):
@@ -242,109 +250,34 @@ def crear_features_avanzadas(train_df, test_df):
     Crea features avanzadas A PRIORI basadas en históricos (sin leakage - usando solo train)
     """
 
-    print("\n🚀 Creando features avanzadas...")
+    print("🚀 Creando features avanzadas...")
 
-    # ------------------------------------------------------------------
-    # 1. PROPINA MEDIA POR ZONA
-    # ------------------------------------------------------------------
-    avg_tip_zone = train_df.groupBy("PULocationID").agg(
+    train_df = train_df.withColumn("zone_group", (F.col("PULocationID")/10).cast("int"))
+    test_df  = test_df.withColumn("zone_group", (F.col("PULocationID")/10).cast("int"))
+
+    avg_tip_zone = train_df.groupBy("zone_group").agg(
         F.mean("tip_pct").alias("avg_tip_zone")
     )
 
-    train_df = train_df.join(avg_tip_zone, on="PULocationID", how="left")
-    test_df = test_df.join(avg_tip_zone, on="PULocationID", how="left")
+    train_df = train_df.join(avg_tip_zone, on="zone_group", how="left")
+    test_df  = test_df.join(avg_tip_zone, on="zone_group", how="left")
 
-    # ------------------------------------------------------------------
-    # 2. PROPINA MEDIA POR ZONA + HORA
-    # ------------------------------------------------------------------
-    avg_tip_zone_hour = train_df.groupBy("PULocationID", "hour").agg(
+    avg_tip_zone_hour = train_df.groupBy("zone_group", "hour").agg(
         F.mean("tip_pct").alias("avg_tip_zone_hour")
     )
 
-    train_df = train_df.join(avg_tip_zone_hour, on=["PULocationID", "hour"], how="left")
-    test_df = test_df.join(avg_tip_zone_hour, on=["PULocationID", "hour"], how="left")
+    train_df = train_df.join(avg_tip_zone_hour, ["zone_group","hour"], "left")
+    test_df  = test_df.join(avg_tip_zone_hour, ["zone_group","hour"], "left")
 
-    # ------------------------------------------------------------------
-    # 3. ESTIMACIÓN DE DURACIÓN (SI EXISTE)
-    # ------------------------------------------------------------------
-    if "trip_duration_min" in train_df.columns:
-        avg_duration = train_df.groupBy("PULocationID").agg(
-            F.mean("trip_duration_min").alias("avg_duration_zone")
-        )
-        train_df = train_df.join(avg_duration, on="PULocationID", how="left")
-        test_df = test_df.join(avg_duration, on="PULocationID", how="left")
-
-
-    # ------------------------------------------------------------------
-    # 4. TARIFA MEDIA POR ZONA (proxy socioeconómico)
-    # ------------------------------------------------------------------
-    avg_fare_zone = train_df.groupBy("PULocationID").agg(
-        F.mean("fare_amount").alias("avg_fare_zone")
-    )
-
-    train_df = train_df.join(avg_fare_zone, on="PULocationID", how="left")
-    test_df = test_df.join(avg_fare_zone, on="PULocationID", how="left")
-
-    # ---------------------------------------------------------
-    # 5. VOLUMEN DE VIAJES POR ZONA
-    # ---------------------------------------------------------
-    trip_count_zone = train_df.groupBy("PULocationID").agg(
+    trip_count_zone = train_df.groupBy("zone_group").agg(
         F.count("*").alias("trip_count_zone")
     )
 
-    train_df = train_df.join(trip_count_zone, on="PULocationID", how="left")
-    test_df = test_df.join(trip_count_zone, on="PULocationID", how="left")
+    train_df = train_df.join(trip_count_zone, on="zone_group", how="left")
+    test_df  = test_df.join(trip_count_zone, on="zone_group", how="left")
 
-    # ---------------------------------------------------------
-    # 6. FEATURE COMPORTAMIENTO
-    # ---------------------------------------------------------
-    train_df = train_df.withColumn(
-        "fare_per_passenger",
-        F.col("fare_amount") / F.when(F.col("passenger_count") > 0, F.col("passenger_count")).otherwise(1)
-    )
-
-    test_df = test_df.withColumn(
-        "fare_per_passenger",
-        F.col("fare_amount") / F.when(F.col("passenger_count") > 0, F.col("passenger_count")).otherwise(1)
-    )
-
-    # ------------------------------------------------------------------
-    # 7. TIPO DE ZONA (HEURÍSTICA DE NEGOCIO)
-    # ------------------------------------------------------------------
-
-    # ⚠️ Ejemplo simplificado → puedes refinarlo luego
-    # IDs reales puedes afinarlos con el shapefile si quieres
-    """
-    df = df.withColumn(
-        "zone_type",
-        F.when(F.col("PULocationID").isin([132, 138]), "airport")  # JFK, LaGuardia aprox
-        .when(F.col("PULocationID").isin([161, 162, 163, 164]), "manhattan_core")
-        .when(F.col("PULocationID") < 100, "residential")
-        .otherwise("other")
-    )
-
-    # Codificación simple (numérica)
-    df = df.withColumn(
-        "zone_type_index",
-        F.when(F.col("zone_type") == "airport", 3)
-        .when(F.col("zone_type") == "manhattan_core", 2)
-        .when(F.col("zone_type") == "residential", 1)
-        .otherwise(0)
-    )"""
-
-    # ------------------------------------------------------------------
-    # 8. RELLENO DE NULOS IMPORTANTES
-    # ------------------------------------------------------------------
-    fill_values = {
-        "avg_tip_zone": 0,
-        "avg_tip_zone_hour": 0,
-        "avg_fare_zone": 0,
-        "trip_count_zone": 0,
-        "avg_duration_zone": 0
-    }
-
-    train_df = train_df.fillna(fill_values)
-    test_df = test_df.fillna(fill_values)
+    train_df = train_df.fillna(0)
+    test_df  = test_df.fillna(0)
 
     print("✅ Features avanzadas creadas")
 
@@ -476,7 +409,8 @@ def tratar_outliers(df_spark):
         "tip_amount",
         "fare_amount",
         "total_amount",
-        "trip_distance"
+        "trip_distance",
+        "tip_pct"
     ]
 
     # Ruta de salida (ajustada a tu estructura)
@@ -523,7 +457,8 @@ def tratar_outliers(df_spark):
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
 from pyspark.ml.regression import LinearRegression
-from pyspark.ml.evaluation import RegressionEvaluator
+from pyspark.ml.classification import RandomForestClassifier, LogisticRegression
+from pyspark.ml.evaluation import RegressionEvaluator, MulticlassClassificationEvaluator
 
 def base_pipeline():
 
@@ -534,8 +469,7 @@ def base_pipeline():
     ]
 
     analytical_cols = [
-        "passenger_count", 
-        "fare_amount", 
+        "passenger_count",
         "hour", 
         "month",
         "is_weekend"
@@ -546,22 +480,27 @@ def base_pipeline():
         for col in categorical_cols
     ]
     
+    encoders = [
+        OneHotEncoder(inputCol=f"{c}_idx", outputCol=f"{c}_ohe")
+        for c in categorical_cols
+    ]
+    
     assembler = VectorAssembler(
-        inputCols = [f"{col}_idx" for col in categorical_cols] + analytical_cols,
+        inputCols = [f"{col}_ohe" for col in categorical_cols] + analytical_cols,
         outputCol = "features"
     )
 
     # Modelo Base
-    lr = LinearRegression(
+    lr = LogisticRegression(
         featuresCol = "features",
-        labelCol = "tip_pct",
+        labelCol = "tip_class",
         predictionCol = "prediction",
         maxIter = 20,
         regParam = 0.1
     )
 
     pipeline = Pipeline(
-        stages = indexers + [assembler, lr]
+        stages = indexers + encoders + [assembler, lr]
     )
 
     return pipeline
@@ -575,12 +514,11 @@ def production_pipeline():
 
     # Variables -a priori-
     categorical_cols = [
-        #"zone_type",  
+        "zone_group",  
         "day_of_week"
     ]
 
     numeric_cols = [
-        "PULocationID", 
         "passenger_count", 
         "fare_amount", 
         "hour",
@@ -588,10 +526,7 @@ def production_pipeline():
         "is_weekend",
         "avg_tip_zone",
         "avg_tip_zone_hour",
-        "avg_duration_zone",
-        "avg_fare_zone",
-        "trip_count_zone",
-        "fare_per_passenger"
+        "trip_count_zone"
     ]
 
     # Indexación
@@ -600,16 +535,21 @@ def production_pipeline():
         for col in categorical_cols
     ]
 
+    encoders = [
+        OneHotEncoder(inputCol = f"{c}_idx", outputCol = f"{c}_ohe")
+        for c in categorical_cols
+    ]
+
     # Ensamblado
     assembler = VectorAssembler(
-        inputCols=[f"{col}_idx" for col in categorical_cols] + numeric_cols,
+        inputCols=[f"{col}_ohe" for col in categorical_cols] + numeric_cols,
         outputCol="features"
     )
 
     # MODELO FINAL
-    gbt = GBTRegressor(
+    gbt = RandomForestClassifier(
         featuresCol="features",
-        labelCol="tip_pct",
+        labelCol="tip_class",
         predictionCol="prediction",
         maxIter=30,
         maxDepth=3,
@@ -619,7 +559,7 @@ def production_pipeline():
     )
 
     pipeline = Pipeline(
-        stages=indexers + [assembler, gbt]
+        stages=indexers + encoders + [assembler, gbt]
     )
 
     return pipeline
@@ -651,32 +591,48 @@ def evaluate_model(model, test_df):
 
     predictions = model.transform(test_df)
 
-    evaluator_rmse = RegressionEvaluator(
-        labelCol = "tip_pct",
+    evaluator_rmse = MulticlassClassificationEvaluator(
+        labelCol = "tip_class",
         predictionCol = "prediction",
         metricName = "rmse"
     )
 
-    evaluator_mae = RegressionEvaluator(
-        labelCol = "tip_pct",
+    evaluator_mae = MulticlassClassificationEvaluator(
+        labelCol = "tip_class",
         predictionCol = "prediction",
         metricName = "mae"
     )
 
-    evaluator_r2 = RegressionEvaluator(
-        labelCol = "tip_pct",
+    evaluator_r2 = MulticlassClassificationEvaluator(
+        labelCol = "tip_class",
         predictionCol = "prediction",
         metricName = "r2"
+    )
+
+    evaluator_f1 = MulticlassClassificationEvaluator(
+        labelCol="tip_class", 
+        predictionCol="prediction", 
+        metricName="f1"
+    )
+
+    evaluator_acc = MulticlassClassificationEvaluator(
+        labelCol="tip_class",
+        predictionCol="prediction", 
+        metricName="accuracy"
     )
 
     rmse = evaluator_rmse.evaluate(predictions)
     mae = evaluator_mae.evaluate(predictions)
     r2 = evaluator_r2.evaluate(predictions)
+    f1 = evaluator_f1.evaluate(predictions)
+    acc = evaluator_acc.evaluate(predictions)
 
     print("Evaluación del modelo:")
     print(f"RMSE: {rmse:.4f}")
     print(f"MAE: {mae:.4f}")
     print(f"R2: {r2:.4f}")
+    print(f"F1: {f1:.4f}")
+    print(f"Accuracy: {acc:.4f}")
 
     return predictions
 
@@ -701,19 +657,18 @@ def run_model(df, modelo):
     # 3. Split
     train_df, test_df = data_split(df)
 
-    # 4. Features sin leakage
-    train_df, test_df = crear_features_avanzadas(train_df, test_df)
-    
-    # 5. Pipeline
+    # 4. Pipeline
     if modelo == "baseline":
         pipeline = base_pipeline()
     else:
+        # Features sin leakage -> no necesarias en el baseline
+        train_df, test_df = crear_features_avanzadas(train_df, test_df)
         pipeline = production_pipeline()
     
-    # 6. Entrenar
+    # 5. Entrenar
     model = train_model(pipeline, train_df)
     
-    # 7. Evaluar
+    # 6. Evaluar
     predictions = evaluate_model(model, test_df)
     
     if modelo == "baseline":
@@ -767,7 +722,7 @@ def main():
         # -----------------------------------------------------------------------------
         prod_start = time.time()
 
-        prod_model, prod_predicts = run_model(df_final, "gbt")
+        prod_model, prod_predicts = run_model(df_final, "RFT")
         
         prod_stop = time.time()
         prod_time = (prod_stop - prod_start)/60
