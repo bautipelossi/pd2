@@ -367,6 +367,22 @@ def map_dominant_demand(demanda, DATA_DIR, OUT_DIR):
             tooltip=f"{row.get('zone','')} → {row['nivel_demanda']}"
         ).add_to(mapa)
 
+    legend_html = """
+    <div style="
+    position: fixed; 
+    bottom: 40px; left: 40px; width: 160px; height: 120px; 
+    background-color: white; 
+    border:2px solid grey; z-index:9999; font-size:14px;
+    padding: 10px;
+    ">
+    <b>Demanda</b><br>
+    <i style="background:#2ca25f;width:10px;height:10px;display:inline-block;"></i> Baja<br>
+    <i style="background:#feb24c;width:10px;height:10px;display:inline-block;"></i> Media<br>
+    <i style="background:#de2d26;width:10px;height:10px;display:inline-block;"></i> Alta
+    </div>
+    """
+
+    mapa.get_root().html.add_child(folium.Element(legend_html))
     mapa.save(OUT_DIR / "mapa_demanda_dominante.html")
     
 
