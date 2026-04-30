@@ -1,5 +1,6 @@
 import os
 import sys
+import platform # NUEVO: Para detectar el Sistema Operativo
 import pandas as pd
 from dotenv import load_dotenv, find_dotenv
 from pathlib import Path
@@ -15,8 +16,12 @@ def create_spark_session():
     load_dotenv(find_dotenv())
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
-    os.environ['HADOOP_HOME'] = "C:/hadoop"
-    os.environ['HADOOP_TMP_DIR'] = "C:/tmp/hadoop"
+    
+    # --- PARCHE MULTIPLATAFORMA ---
+    # Solo inyectamos las rutas "C:/" si detectamos que estamos en Windows.
+    if platform.system() == "Windows":
+        os.environ['HADOOP_HOME'] = "C:/hadoop"
+        os.environ['HADOOP_TMP_DIR'] = "C:/tmp/hadoop"
 
     spark = SparkSession.builder \
         .appName("Prediccion_Demanda_Taxi_Ex1a_Potenciado") \
@@ -104,7 +109,6 @@ def train_and_compare(train_data, val_data):
     pipeline_rf = Pipeline(stages=[indexer_zone, indexer_day, encoder, assembler, rf])
     print("\n> Entrenando Random Forest Potenciado (150 árboles)... [Paciencia, puede tardar]")
     model_rf = pipeline_rf.fit(train_data)
-    # --- CAMBIO AQUÍ: Añadimos r2_rf ---
     rmse_rf, mae_rf, r2_rf = evaluate_model(model_rf, val_data)
 
     # 2. Gradient-Boosted Trees (Más iteraciones, profundidad controlada, aprendizaje lento)
@@ -113,10 +117,9 @@ def train_and_compare(train_data, val_data):
     pipeline_gbt = Pipeline(stages=[indexer_zone, indexer_day, encoder, assembler, gbt])
     print("> Entrenando Gradient-Boosted Trees Potenciado (80 iteraciones)... [Paciencia, puede tardar]")
     model_gbt = pipeline_gbt.fit(train_data)
-    # --- CAMBIO AQUÍ: Añadimos r2_gbt ---
     rmse_gbt, mae_gbt, r2_gbt = evaluate_model(model_gbt, val_data)
 
-    # Mostrar comparativa (Añadido el R2 al print)
+    # Mostrar comparativa 
     print("\n" + "="*50)
     print(f" RESULTADOS EN VALIDATION (Modelos Ultra)")
     print(f" RF  -> RMSE: {rmse_rf:.2f} | MAE: {mae_rf:.2f} | R2: {r2_rf:.4f}")
@@ -201,15 +204,17 @@ if __name__ == "__main__":
     print("PROCESO DE CÁLCULO FINALIZADO EXITOSAMENTE")
     print("-" * 50)
 
-    # 4. Guardar modelo
-    ruta_modelo_local = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
+    # 4. Guardar modelo (MODIFICACIÓN MULTIPLATAFORMA)
+    # Mantenemos ruta_modelo_local como un objeto Path, NO como string, para poder usar .as_uri()
+    ruta_modelo_local = Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda"
     print(f"Guardando mejor modelo localmente en: {ruta_modelo_local}")
     
     try:
-        ruta_final = "file:///" + ruta_modelo_local.replace("\\", "/")
+        # .as_uri() genera automáticamente el esquema "file:///" correcto para Mac, Linux o Windows
+        ruta_final = ruta_modelo_local.as_uri()
         best_model.write().overwrite().save(ruta_final)
         print(" ¡LOGRADO! Modelo guardado correctamente.")
     except Exception as e:
-        print(f"Error persistente: {e}")
+        print(f"Error persistente al guardar: {e}")
 
     spark.stop()

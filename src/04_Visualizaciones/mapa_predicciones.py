@@ -1,5 +1,6 @@
 import os
 import sys
+import platform # NUEVO: Para detectar el Sistema Operativo (Mac, Linux, Windows)
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -11,14 +12,19 @@ from pyspark.ml import PipelineModel
 def create_spark_session():
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
-    os.environ['HADOOP_HOME'] = "C:/hadoop"
+    
+    # --- PARCHE MULTIPLATAFORMA ---
+    # Solo inyectamos la variable HADOOP_HOME si el sistema es Windows.
+    # En macOS y Linux, Spark utiliza las librerías nativas del sistema.
+    if platform.system() == "Windows":
+        os.environ['HADOOP_HOME'] = "C:/hadoop"
     
     spark = SparkSession.builder.appName("Visualizacion_Demanda_Semanal").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 
 def cargar_modelo(spark):
-    # RUTA CORREGIDA: Apunta a src/modelos/mejor_modelo_demanda
+    # Pathlib ya se encarga automáticamente de orientar las barras ( / vs \ ) según el SO
     ruta_modelo_local = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
     print(f"Cargando modelo desde: {ruta_modelo_local}")
     return PipelineModel.load(ruta_modelo_local)
@@ -33,7 +39,6 @@ def get_zone_dict():
         print(f"Aviso: No se pudo descargar el catálogo ({e})")
         return {}
 
-# AJUSTE PARA EL NUEVO MODELO: Añadido dataset_completo y clima simulado
 def generar_datos_semanales(spark, model, dataset_completo, diccionario_zonas):
     print("Generando predicciones masivas para toda la semana (L-D)...")
     
@@ -97,7 +102,6 @@ def dibujar_dashboard_semanal(df_pandas):
         yaxis=dict(title="Viajes Esperados"), hovermode="x unified"
     )
 
-    # SE MANTIENE TU RUTA DE SALIDA INTACTA
     base_dir = Path(__file__).resolve().parent
     ruta_final = base_dir.parent / "visualizacion" / "Prediccion_Demanda_E1a" / "dashboard_semanal_interactivo.html"
     ruta_final.parent.mkdir(parents=True, exist_ok=True)
@@ -121,7 +125,7 @@ if __name__ == "__main__":
         modelo = cargar_modelo(spark)
         dict_zonas = get_zone_dict()
         
-        # Leemos el parquet desde la raíz
+        # Pathlib maneja las rutas de forma agnóstica al SO.
         ruta_parquet = str(Path(__file__).resolve().parents[2] / "datos" / "limpios" / "resumen_zona_hora.parquet")
         dataset_completo = spark.read.parquet(ruta_parquet)
 

@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import urllib.request
+import platform # <--- NUEVO: Para detectar el Sistema Operativo
 import pandas as pd
 import plotly.express as px
 from dotenv import load_dotenv, find_dotenv
@@ -12,13 +13,17 @@ from pyspark.ml import PipelineModel
 def create_spark_session():
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
-    os.environ['HADOOP_HOME'] = "C:/hadoop"
+    
+    # --- PARCHE MULTIPLATAFORMA ---
+    # Solo aplicamos la ruta C:/ si detectamos que estamos en Windows
+    if platform.system() == "Windows":
+        os.environ['HADOOP_HOME'] = "C:/hadoop"
+        
     spark = SparkSession.builder.appName("Visualizacion_Mapa_WebApp_Pro").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     return spark
 
 def cargar_modelo(spark):
-    # RUTA CORREGIDA: Apunta a src/modelos/mejor_modelo_demanda
     ruta_modelo = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
     print(f"Cargando modelo entrenado desde: {ruta_modelo}")
     return PipelineModel.load(ruta_modelo)
