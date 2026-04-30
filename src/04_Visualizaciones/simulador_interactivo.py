@@ -4,6 +4,9 @@ import platform
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import boto3
+from botocore.client import Config
+from dotenv import load_dotenv, find_dotenv
 from pathlib import Path
 from pyspark.sql import SparkSession, Row
 from pyspark.ml import PipelineModel
@@ -11,28 +14,84 @@ from pyspark.ml import PipelineModel
 # --- CONFIGURACIÓN DE PÁGINA STREAMLIT ---
 st.set_page_config(page_title="NYC Taxi Simulator Pro", layout="wide", page_icon="🚕")
 
-# --- FUNCIONES DE CACHÉ (Para no recargar Spark cada vez que tocas un botón) ---
+def descargar_modelo_desde_minio(ruta_local):
+    """Descarga el modelo v2 desde MinIO de forma recursiva si no existe en local"""
+    load_dotenv(find_dotenv())
+    
+    endpoint = os.getenv("MINIO_ENDPOINT")
+    access_key = os.getenv("MINIO_ACCESS_KEY")
+    secret_key = os.getenv("MINIO_SECRET_KEY")
+    bucket = os.getenv("MINIO_BUCKET")
+    group_path = os.getenv("MINIO_GROUP_PATH")
+
+    if not all([endpoint, access_key, secret_key, bucket, group_path]):
+        st.error("❌ Faltan las variables de entorno de MinIO (.env) para descargar el modelo.")
+        st.stop()
+
+    s3_client = boto3.client(
+        's3', endpoint_url=endpoint, aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key, config=Config(signature_version='s3v4')
+    )
+
+    # Buscamos la versión v2 que sabemos que está íntegra en la nube
+    prefijo_s3 = f"{group_path}/models/mejor_modelo_demanda_v2/"
+    
+    texto_estado = st.empty()
+    texto_estado.info("📥 El modelo predictivo no está en local. Descargándolo automáticamente de MinIO... (Esto tomará un minuto)")
+
+    try:
+        paginator = s3_client.get_paginator('list_objects_v2')
+        paginas = paginator.paginate(Bucket=bucket, Prefix=prefijo_s3)
+        
+        archivos_totales = 0
+        for pagina in paginas:
+            if 'Contents' in pagina:
+                for obj in pagina['Contents']:
+                    s3_key = obj['Key']
+                    
+                    if s3_key.endswith('/'):
+                        continue
+                        
+                    ruta_relativa = s3_key.replace(prefijo_s3, "")
+                    ruta_archivo_local = ruta_local / ruta_relativa
+                    
+                    ruta_archivo_local.parent.mkdir(parents=True, exist_ok=True)
+                    s3_client.download_file(bucket, s3_key, str(ruta_archivo_local))
+                    archivos_totales += 1
+                    
+        if archivos_totales == 0:
+            texto_estado.error("❌ No se encontró el modelo en MinIO. Avisa al administrador.")
+            st.stop()
+        else:
+            texto_estado.success(f"✅ Modelo sincronizado con éxito desde la nube ({archivos_totales} archivos).")
+            
+    except Exception as e:
+        texto_estado.error(f"❌ Error crítico de red descargando desde MinIO: {e}")
+        st.stop()
+
+# --- FUNCIONES DE CACHÉ ---
 @st.cache_resource
 def iniciar_spark_y_modelo():
-    # Variables de entorno universales para Python
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
     
-    # PARCHE MULTIPLATAFORMA: Evitamos la ruta Windows en Mac/Linux
     if platform.system() == "Windows":
         os.environ['HADOOP_HOME'] = "C:/hadoop"
     
     spark = SparkSession.builder.appName("NYC_Simulator").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     
-    # Rutas independientes del OS gracias a Pathlib
-    ruta_modelo = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
-    modelo = PipelineModel.load(ruta_modelo)
+    ruta_modelo = Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda"
+    
+    # --- SISTEMA DE FALLBACK AUTOMÁTICO ---
+    if not (ruta_modelo / "metadata").exists():
+        descargar_modelo_desde_minio(ruta_modelo)
+        
+    modelo = PipelineModel.load(str(ruta_modelo))
     
     ruta_parquet = str(Path(__file__).resolve().parents[2] / "datos" / "limpios" / "resumen_zona_hora.parquet")
     dataset = spark.read.parquet(ruta_parquet)
     
-    # Extraer variables estáticas para que sea más rápido
     columnas_estaticas = ["pulocationid", "num_restaurantes", "precio_medio_rest", "num_alquileres", "precio_medio_alquiler"]
     df_estatico = dataset.select(columnas_estaticas).dropDuplicates(["pulocationid"])
     
@@ -50,13 +109,8 @@ def obtener_diccionario_zonas():
 # --- FUNCIÓN DE PREDICCIÓN EN TIEMPO REAL ---
 def simular_demanda(spark, modelo, df_estatico, dia_semana, temp, lluvia, evento, dic_zonas):
     data_grid = [Row(
-        pulocationid=int(z), 
-        day_of_week=int(dia_semana), 
-        pickup_hour=int(h),
-        temperature_2m=float(temp), 
-        precipitation=float(lluvia), 
-        snowfall=0.0, 
-        hay_evento=int(evento)
+        pulocationid=int(z), day_of_week=int(dia_semana), pickup_hour=int(h),
+        temperature_2m=float(temp), precipitation=float(lluvia), snowfall=0.0, hay_evento=int(evento)
     ) for z in range(1, 265) for h in range(24)]
     
     df_grid = spark.createDataFrame(data_grid)
@@ -73,12 +127,10 @@ def main():
     st.title("🚕 NYC Taxi Demand: Digital Twin Simulator")
     st.markdown("Simula cómo reacciona la ciudad ante diferentes condiciones climáticas y eventos culturales.")
 
-    # Inicializar el motor
     with st.spinner("Cargando el motor de Inteligencia Artificial (Spark)..."):
         spark, modelo, df_estatico = iniciar_spark_y_modelo()
         dic_zonas = obtener_diccionario_zonas()
 
-    # Barra lateral de controles
     st.sidebar.header("🎛️ Panel de Control")
     
     dias_map = {"Lunes": 2, "Martes": 3, "Miércoles": 4, "Jueves": 5, "Viernes": 6, "Sábado": 7, "Domingo": 1}
@@ -93,14 +145,11 @@ def main():
     st.sidebar.subheader("🎭 Agenda de la Ciudad")
     evento = st.sidebar.toggle("🎟️ Activar Gran Evento Público")
     
-    # Calcular predicciones
     df_resultado = simular_demanda(spark, modelo, df_estatico, dias_map[dia_seleccionado], temp, lluvia, evento, dic_zonas)
     
-    # Obtener el Top 5 del día simulado
     top_5_zonas = df_resultado.groupby('nombre_zona')['prediction'].sum().nlargest(5).index.tolist()
     df_top = df_resultado[df_resultado['nombre_zona'].isin(top_5_zonas)]
 
-    # Dibujar gráfica
     fig = go.Figure()
     for zona in top_5_zonas:
         df_zona = df_top[df_top['nombre_zona'] == zona].sort_values('pickup_hour')
@@ -120,7 +169,6 @@ def main():
     
     st.plotly_chart(fig, use_container_width=True)
     
-    # Mostrar impacto matemático en pantalla
     st.info(f"**Análisis del Motor AI:** Evaluando {dia_seleccionado} con {temp}ºC, lluvia de {lluvia}mm y {'con evento' if evento else 'sin evento'}.")
 
 if __name__ == "__main__":
