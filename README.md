@@ -166,13 +166,9 @@ python src/02_Transformacion/PreprocesamientoVolumenTrafico.py
 # (Continúa con los demás scripts de limpieza correspondientes)
 ```
 
-### Paso 3: Modelos y scoring
+### Paso 3: Modelos (Fase 1)
 
-#### Fase 1 (modelos)
 Entrenamiento y evaluacion de modelos base sobre datasets limpios para predicciones (propinas, demanda maxima) y patrones. Esta fase genera artefactos en `outputs/` y puede apoyarse en MinIO si esta configurado.
-
-#### Fase 2 (scoring y despliegue web)
-Pipeline de extraccion, cruce y scoring con foco en resultados listos para consumo visual. Los outputs finales se publican como HTML en `src/08_despliegue` y mapas diarios.
 
 Entrena o valida modelos segun el objetivo:
 
@@ -182,15 +178,7 @@ python src/03_Modelos/prediccion_propinas.py
 python src/03_Modelos/prediccion_maxima_demanda.py
 ```
 
-Para la fase 2 (extraccion/agregacion/scoring):
-
-```bash
-python src/05_extraccion2/generar_target_fase2.py
-python src/06_agregacion2/cruce_fase2.py
-python src/07_score/score_rf.py
-```
-
-### Paso 4: Visualizaciones
+### Paso 4: Visualizaciones (Fase 1)
 
 Con los datos procesados, finalmente puedes ejecutar los scripts de la carpeta `Visualizacion` para generar los gráficos interactivos. Tienes varios scripts dependiendo del análisis que quieras realizar:
 
@@ -208,6 +196,18 @@ Con los datos procesados, finalmente puedes ejecutar los scripts de la carpeta `
 
 Además, en `src/04_Visualizaciones` hay dashboards y simuladores interactivos listos para ejecutar.
 
+### Paso 5: Fase 2 (extraccion, agregacion, scoring y despliegue web)
+
+Esta fase incluye extraccion 2, agregaciones 2, scoring y la visualizacion final para despliegue en producción.
+
+```bash
+python src/05_extraccion2/generar_target_fase2.py
+python src/06_agregacion2/cruce_fase2.py
+python src/07_score/score_rf.py
+```
+
+Los HTML finales estan en `src/08_despliegue` (incluye mapas diarios).
+
 ---
 
 <a id="trabajo"></a>
@@ -218,7 +218,7 @@ Además, en `src/04_Visualizaciones` hay dashboards y simuladores interactivos l
 * Agregaciones temporales y espaciales para analisis de demanda.
 * Fase 1: modelado base y modelos de prediccion (propinas, maxima demanda) con artefactos en `outputs/`.
 * Fase 2: pipeline de extraccion, cruce, scoring y validacion con resultados listos para despliegue.
-* Despliegue web: dashboards y HTML en `src/08_despliegue` y `src/04_Visualizaciones`.
+* Despliegue en producción: dashboards y HTML en `src/08_despliegue` y `src/04_Visualizaciones`.
 
 ---
 
