@@ -463,7 +463,8 @@ def map_global(demanda, DATA_DIR, OUT_DIR):
                         "color": "black",
                         "fillOpacity": 1,
                         "weight": 0.5
-                    }
+                    },
+                    "tooltip": f"{zona.get('zone','')} → {row['nivel']}"
                 }
             })
 
@@ -544,7 +545,8 @@ def map_local(demanda, DATA_DIR, OUT_DIR):
                         "color": "black",
                         "fillOpacity": 1,
                         "weight": 0.5
-                    }
+                    },
+                    "tooltip": f"{zona.get('zone','')} → {row['nivel']}"
                 }
             })
 
@@ -738,11 +740,6 @@ def main():
 
     spark = crear_spark()
 
-    print(BASE_DIR)
-    print(DATA_DIR)
-    print(OUT_DIR)
-
-    input("Pulsa Enter (o Ctrl+C para parar)... ")
     # --------------------------------------------------
     # 1. CARGA Y PREPARACIÓN
     # --------------------------------------------------
