@@ -1145,6 +1145,41 @@ footer {
   opacity: 1;
   transform: translateY(0);
 }
+
+/* ══════════════════════════
+   FORCE WHITE TEXT OVERRIDE
+══════════════════════════ */
+body, body * {
+  color: #ffffff;
+}
+.nav-link { color: #ffffff !important; }
+.nav-link:hover { color: var(--yellow) !important; }
+.nav-link.active { color: var(--yellow) !important; }
+.hero-desc { color: #ffffff !important; }
+.about-card-text { color: #ffffff !important; }
+.step-text { color: #ffffff !important; }
+.stat-label { color: #ffffff !important; }
+.stat-unit { color: #ffffff !important; }
+.form-desc { color: #ffffff !important; }
+.form-field label { color: #ffffff !important; }
+.section-sub { color: #ffffff !important; }
+.map-overlay-text { color: #ffffff !important; }
+.map-placeholder-text { color: #ffffff !important; }
+.map-placeholder-title { color: #ffffff !important; }
+.ranking-title { color: #ffffff !important; }
+.rank-borough { color: #ffffff !important; }
+.rank-score-label { color: #ffffff !important; }
+.vtc-metric-label { color: #ffffff !important; }
+.insight-box { color: #ffffff !important; }
+.team-role { color: var(--yellow) !important; }
+.footer-info { color: #ffffff !important; }
+.footer-status { color: #ffffff !important; }
+.placeholder-text { color: #ffffff !important; }
+.map-card-desc { color: #ffffff !important; }
+.hero-label { color: var(--yellow) !important; }
+.about-card-tag { color: var(--yellow) !important; }
+.map-card-badge { color: var(--cyan) !important; }
+p, span, div, li, a, label { color: inherit; }
 </style>
 </head>
 <body>
@@ -1203,11 +1238,6 @@ footer {
       <div class="stat-label">Zonas modeladas</div>
       <div class="stat-value">263</div>
       <div class="stat-unit">taxi zones de NYC</div>
-    </div>
-    <div class="stat-card">
-      <div class="stat-label">Precisión del modelo</div>
-      <div class="stat-value">R² 0.87</div>
-      <div class="stat-unit">Random Forest, 200 árboles</div>
     </div>
     <div class="stat-card">
       <div class="stat-label">Variable objetivo</div>
@@ -1308,21 +1338,6 @@ footer {
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
       Score por Zona
       <span class="tab-badge">ACTIVO</span>
-    </button>
-    <button class="model-tab" onclick="switchTab('demand')" data-tab="demand">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-      Predicción de Demanda
-      <span class="tab-badge soon">PRÓXIMO</span>
-    </button>
-    <button class="model-tab" onclick="switchTab('events')" data-tab="events">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-      Impacto de Eventos
-      <span class="tab-badge soon">PRÓXIMO</span>
-    </button>
-    <button class="model-tab" onclick="switchTab('weather')" data-tab="weather">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 17.58A5 5 0 0 0 18 8h-1.26A8 8 0 1 0 4 16.25"/><polyline points="16 22 12 18 8 22"/></svg>
-      Clima & Tráfico
-      <span class="tab-badge soon">PRÓXIMO</span>
     </button>
   </div>
 
@@ -1426,144 +1441,96 @@ footer {
     </div>
   </div>
 
-  <!-- DEMAND MODEL (COMING SOON) -->
-  <div class="model-panel" id="panel-demand">
-    <div style="text-align:center;padding:80px 48px;background:var(--surface);border:1px solid var(--border2);">
-      <div style="font-size:3rem;margin-bottom:24px;opacity:0.3;">🚀</div>
-      <div style="font-family:var(--display);font-weight:800;font-size:1.5rem;margin-bottom:16px;">Modelo de Demanda</div>
-      <p style="font-size:0.82rem;color:var(--muted);max-width:400px;margin:0 auto 32px;line-height:1.7;">
-        Este modelo predecirá el volumen de demanda por zona y franja horaria, incorporando datos de tráfico y eventos. En desarrollo.
-      </p>
-      <div style="border:1px dashed var(--border);padding:16px 24px;display:inline-block;font-size:0.72rem;color:var(--yellow);letter-spacing:0.1em;text-transform:uppercase;">
-        Próximamente disponible
-      </div>
-    </div>
-  </div>
-
-  <!-- EVENTS MODEL (COMING SOON) -->
-  <div class="model-panel" id="panel-events">
-    <div style="text-align:center;padding:80px 48px;background:var(--surface);border:1px solid var(--border2);">
-      <div style="font-size:3rem;margin-bottom:24px;opacity:0.3;">🎭</div>
-      <div style="font-family:var(--display);font-weight:800;font-size:1.5rem;margin-bottom:16px;">Modelo de Eventos</div>
-      <p style="font-size:0.82rem;color:var(--muted);max-width:400px;margin:0 auto 32px;line-height:1.7;">
-        Analiza el impacto de conciertos, deportes, convenciones y eventos especiales sobre la demanda de taxis en cada zona. En desarrollo.
-      </p>
-      <div style="border:1px dashed var(--border);padding:16px 24px;display:inline-block;font-size:0.72rem;color:var(--yellow);letter-spacing:0.1em;text-transform:uppercase;">
-        Próximamente disponible
-      </div>
-    </div>
-  </div>
-
-  <!-- WEATHER MODEL (COMING SOON) -->
-  <div class="model-panel" id="panel-weather">
-    <div style="text-align:center;padding:80px 48px;background:var(--surface);border:1px solid var(--border2);">
-      <div style="font-size:3rem;margin-bottom:24px;opacity:0.3;">🌧️</div>
-      <div style="font-family:var(--display);font-weight:800;font-size:1.5rem;margin-bottom:16px;">Modelo Clima & Tráfico</div>
-      <p style="font-size:0.82rem;color:var(--muted);max-width:400px;margin:0 auto 32px;line-height:1.7;">
-        Incorpora datos meteorológicos y de tráfico para ajustar las predicciones de score según las condiciones del día. En desarrollo.
-      </p>
-      <div style="border:1px dashed var(--border);padding:16px 24px;display:inline-block;font-size:0.72rem;color:var(--yellow);letter-spacing:0.1em;text-transform:uppercase;">
-        Próximamente disponible
-      </div>
-    </div>
-  </div>
 </section>
 
 <!-- ═══════════════════════
-     MAPAS
+     DASHBOARDS
 ═══════════════════════ -->
 <section id="mapas">
   <div class="section-header fade-in">
-    <div class="section-num">03 / MAPAS</div>
+    <div class="section-num">03 / DASHBOARDS</div>
     <div>
-      <h2 class="section-title">Visualizaciones <em>geoespaciales</em></h2>
-      <p class="section-sub">Mapas interactivos que revelan patrones de demanda, rentabilidad y movilidad en toda Nueva York.</p>
+      <h2 class="section-title">Visualizaciones <em>interactivas</em></h2>
+      <p class="section-sub">Dashboards geoespaciales y temporales que revelan patrones de demanda, rentabilidad y movilidad en Nueva York.</p>
     </div>
   </div>
 
-  <div class="maps-grid fade-in">
+  <!-- Dashboard Tabs -->
+  <div class="models-tabs fade-in" style="margin-bottom:0;">
+    <button class="model-tab active" onclick="switchDashboard('geo')" data-dash="geo">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      Dashboard Geográfico
+    </button>
+    <button class="model-tab" onclick="switchDashboard('geocore')" data-dash="geocore">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      NYC Geo Core
+    </button>
+    <button class="model-tab" onclick="switchDashboard('semanal')" data-dash="semanal">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Dashboard Semanal
+    </button>
+  </div>
 
-    <!-- MAP 1: Choropleth -->
-    <div class="map-card">
-      <div class="map-card-header">
-        <div class="map-card-title">Mapa Coroplético de Rentabilidad</div>
-        <div class="map-card-badge">INTERACTIVO</div>
-      </div>
-      <p class="map-card-desc">
-        Visualización del Score predicho por zona geográfica. Filtrable por día, hora, temperatura y eventos especiales. Incluye slider temporal para explorar la evolución horaria.
-      </p>
-      <div class="map-frame-container" id="container-choroplet">
-        <div class="map-placeholder">
-          <div class="placeholder-pattern"></div>
-          <div class="map-placeholder-icon">🗺️</div>
-          <div class="map-placeholder-title">Mapa Coroplético</div>
-          <p class="map-placeholder-text">Coloca el archivo <strong>mapa_coropletico.html</strong> en la carpeta <code>static/maps/</code></p>
-          <button class="upload-btn" onclick="loadMapFromInput('choroplet', 'mapa_coropletico')">Seleccionar archivo</button>
-          <input type="file" id="file-choroplet" accept=".html" style="display:none" onchange="handleMapFile(event,'choroplet')">
-        </div>
+  <!-- Dashboard: Geográfico -->
+  <div class="dashboard-panel active" id="dash-geo" style="background:var(--surface);border:1px solid var(--border);border-top:none;">
+    <div style="padding:0;">
+      <iframe src="DASHBOARD_GEOGRAFICO_NYC.html"
+        style="width:100%;height:680px;border:none;display:block;"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+      </iframe>
+      <div class="map-placeholder" style="display:none;height:680px;">
+        <div class="placeholder-pattern"></div>
+        <div class="map-placeholder-icon">&#x1F5FA;&#xFE0F;</div>
+        <div class="map-placeholder-title">Dashboard Geográfico</div>
+        <p class="map-placeholder-text">Asegúrate de que <strong>DASHBOARD_GEOGRAFICO_NYC.html</strong> está en la misma carpeta que este archivo.</p>
+        <button class="upload-btn" onclick="document.getElementById('file-geo').click()">Seleccionar archivo</button>
+        <input type="file" id="file-geo" accept=".html" style="display:none" onchange="handleDashFile(event,'dash-geo')">
       </div>
     </div>
+  </div>
 
-    <!-- MAP 2: Demand Slider -->
-    <div class="map-card">
-      <div class="map-card-header">
-        <div class="map-card-title">Demanda Media por Zona</div>
-        <div class="map-card-badge">INTERACTIVO</div>
-      </div>
-      <p class="map-card-desc">
-        Slider temporal que muestra la demanda media de viajes por barrio a lo largo de las 24 horas del día. Permite identificar franjas de alta actividad por zona.
-      </p>
-      <div class="map-frame-container" id="container-demand">
-        <div class="map-placeholder">
-          <div class="placeholder-pattern"></div>
-          <div class="map-placeholder-icon">📊</div>
-          <div class="map-placeholder-title">Slider de Demanda</div>
-          <p class="map-placeholder-text">Coloca el archivo <strong>mapa_demanda.html</strong> en la carpeta <code>static/maps/</code></p>
-          <button class="upload-btn" onclick="loadMapFromInput('demand', 'mapa_demanda')">Seleccionar archivo</button>
-          <input type="file" id="file-demand" accept=".html" style="display:none" onchange="handleMapFile(event,'demand')">
-        </div>
-      </div>
-    </div>
-
-    <!-- MAP 3: Top 5 Line Chart -->
-    <div class="map-card">
-      <div class="map-card-header">
-        <div class="map-card-title">Top 5 Barrios — Gráfico de Líneas</div>
-        <div class="map-card-badge">INTERACTIVO</div>
-      </div>
-      <p class="map-card-desc">
-        Evolución temporal de los 5 barrios más rentables según el modelo. Filtrable por las mismas variables que el mapa coroplético. Permite comparar la tendencia de cada zona a lo largo del día.
-      </p>
-      <div class="map-frame-container" id="container-linechart">
-        <div class="map-placeholder">
-          <div class="placeholder-pattern"></div>
-          <div class="map-placeholder-icon">📈</div>
-          <div class="map-placeholder-title">Top 5 — Líneas</div>
-          <p class="map-placeholder-text">Coloca el archivo <strong>top5_lineas.html</strong> en la carpeta <code>static/maps/</code></p>
-          <button class="upload-btn" onclick="loadMapFromInput('linechart', 'top5_lineas')">Seleccionar archivo</button>
-          <input type="file" id="file-linechart" accept=".html" style="display:none" onchange="handleMapFile(event,'linechart')">
-        </div>
-      </div>
-    </div>
-
-    <!-- MAP 4: NYC Geo Core — Poder Adquisitivo -->
-    <div class="map-card">
-      <div class="map-card-header">
-        <div class="map-card-title">NYC Geo Core — Poder Adquisitivo</div>
-        <div class="map-card-badge">INTERACTIVO</div>
-      </div>
-      <p class="map-card-desc">
+  <!-- Dashboard: NYC Geo Core — Poder Adquisitivo -->
+  <div class="dashboard-panel" id="dash-geocore" style="background:var(--surface);border:1px solid var(--border);border-top:none;display:none;">
+    <div style="padding:16px 24px 0;border-bottom:1px solid var(--border2);margin-bottom:0;">
+      <p style="font-size:0.82rem;line-height:1.7;color:#ffffff;padding-bottom:14px;">
         Mapa coroplético del poder adquisitivo por zona geográfica en NYC. Permite cruzar la rentabilidad predicha por el modelo con el nivel socioeconómico de cada barrio para identificar zonas estratégicas de alta demanda y capacidad de pago.
       </p>
-      <div class="map-frame-container" id="container-extra">
-        <iframe src="mapa_poder_adquisitivo.html" style="width:100%;height:400px;border:none;"
-          onerror="this.parentElement.innerHTML='<div class=map-placeholder><div class=placeholder-pattern></div><div class=map-placeholder-icon>🗺️</div><div class=map-placeholder-title>Archivo no encontrado</div><p class=map-placeholder-text>Asegúrate de que <strong>mapa_poder_adquisitivo.html</strong> esté en la misma carpeta que este archivo.</p><button class=upload-btn onclick=loadMapFromInput("extra","mapa_poder_adquisitivo")>Seleccionar archivo</button><input type=file id=file-extra accept=.html style=display:none onchange=handleMapFile(event,"extra")></div>'">
-        </iframe>
+    </div>
+    <div style="padding:0;">
+      <iframe src="mapa_poder_adquisitivo.html"
+        style="width:100%;height:660px;border:none;display:block;filter:hue-rotate(180deg) invert(0.85) saturate(1.2) brightness(0.9);"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+      </iframe>
+      <div class="map-placeholder" style="display:none;height:660px;">
+        <div class="placeholder-pattern"></div>
+        <div class="map-placeholder-icon">&#x1F30D;</div>
+        <div class="map-placeholder-title">NYC Geo Core — Poder Adquisitivo</div>
+        <p class="map-placeholder-text">Asegúrate de que <strong>mapa_poder_adquisitivo.html</strong> está en la misma carpeta que este archivo.</p>
+        <button class="upload-btn" onclick="document.getElementById('file-geocore').click()">Seleccionar archivo</button>
+        <input type="file" id="file-geocore" accept=".html" style="display:none" onchange="handleDashFile(event,'dash-geocore')">
       </div>
     </div>
-
   </div>
-</section>
+
+  <!-- Dashboard: Semanal -->
+  <div class="dashboard-panel" id="dash-semanal" style="background:var(--surface);border:1px solid var(--border);border-top:none;display:none;">
+    <div style="padding:0;">
+      <iframe src="dashboard_semanal_interactivo.html"
+        style="width:100%;height:680px;border:none;display:block;"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+      </iframe>
+      <div class="map-placeholder" style="display:none;height:680px;">
+        <div class="placeholder-pattern"></div>
+        <div class="map-placeholder-icon">&#x1F4C5;</div>
+        <div class="map-placeholder-title">Dashboard Semanal</div>
+        <p class="map-placeholder-text">Asegúrate de que <strong>dashboard_semanal_interactivo.html</strong> está en la misma carpeta que este archivo.</p>
+        <button class="upload-btn" onclick="document.getElementById('file-semanal').click()">Seleccionar archivo</button>
+        <input type="file" id="file-semanal" accept=".html" style="display:none" onchange="handleDashFile(event,'dash-semanal')">
+      </div>
+    </div>
+  </div>
+
+    </section>
 
 <!-- ═══════════════════════
      VTC vs TAXI
@@ -1595,10 +1562,6 @@ footer {
         <div class="vtc-metric">
           <div class="vtc-metric-label">Tiempo muerto entre viajes</div>
           <div class="vtc-metric-val bad">~32%</div>
-        </div>
-        <div class="vtc-metric">
-          <div class="vtc-metric-label">Zona de operación óptima</div>
-          <div class="vtc-metric-val good">Manhattan core</div>
         </div>
         <div class="vtc-metric">
           <div class="vtc-metric-label">Score medio ($/min)</div>
@@ -1639,10 +1602,6 @@ footer {
           <div class="vtc-metric-val good">~18%</div>
         </div>
         <div class="vtc-metric">
-          <div class="vtc-metric-label">Zona de operación óptima</div>
-          <div class="vtc-metric-val bad">Toda NYC (disperso)</div>
-        </div>
-        <div class="vtc-metric">
           <div class="vtc-metric-label">Score medio ($/min)</div>
           <div class="vtc-metric-val bad">$0.74*</div>
         </div>
@@ -1678,36 +1637,30 @@ footer {
 
   <div class="team-grid fade-in">
     <div class="team-card">
-      <div class="team-avatar">A</div>
-      <div class="team-name">Miembro 1</div>
-      <div class="team-role">Data Science</div>
+      <div class="team-avatar">BP</div>
+      <div class="team-name">Bautista Pelossi Schweizer</div>
+      <div class="team-role">Developer</div>
     </div>
     <div class="team-card">
-      <div class="team-avatar">B</div>
-      <div class="team-name">Miembro 2</div>
-      <div class="team-role">ML Engineering</div>
+      <div class="team-avatar">PA</div>
+      <div class="team-name">Pablo Alonso</div>
+      <div class="team-role">Developer</div>
     </div>
     <div class="team-card">
-      <div class="team-avatar">C</div>
-      <div class="team-name">Miembro 3</div>
-      <div class="team-role">Geospatial Analysis</div>
+      <div class="team-avatar">RJ</div>
+      <div class="team-name">Rodrigo Jesús-Portanet</div>
+      <div class="team-role">Developer</div>
     </div>
     <div class="team-card">
-      <div class="team-avatar">D</div>
-      <div class="team-name">Miembro 4</div>
-      <div class="team-role">Data Engineering</div>
-    </div>
-    <div class="team-card">
-      <div class="team-avatar">E</div>
-      <div class="team-name">Miembro 5</div>
-      <div class="team-role">Visualization</div>
+      <div class="team-avatar">OM</div>
+      <div class="team-name">Óscar Marín</div>
+      <div class="team-role">Developer</div>
     </div>
   </div>
 
   <div style="text-align:center;margin-top:48px;padding:32px;background:var(--surface);border:1px solid var(--border2);">
-    <div style="font-size:0.72rem;color:var(--muted);letter-spacing:0.1em;text-transform:uppercase;margin-bottom:12px;">Proyecto académico</div>
-    <div style="font-family:var(--display);font-weight:700;font-size:1.1rem;">Universidad &mdash; Máster en Data Science</div>
-    <div style="font-size:0.8rem;color:var(--muted);margin-top:8px;">NYC Taxi Competitiveness Analysis, 2025</div>
+    <div style="font-family:var(--display);font-weight:700;font-size:1.1rem;">Universidad Complutense de Madrid</div>
+    <div style="font-size:0.8rem;margin-top:8px;">Proyecto de Datos II</div>
   </div>
 </section>
 
@@ -1716,10 +1669,10 @@ footer {
 ═══════════════════════ -->
 <footer>
   <div class="footer-logo">TAXÓMANOS</div>
-  <div class="footer-info">Proyecto universitario · Data Science · NYC TLC Analysis 2025</div>
+  <div class="footer-info">Universidad Complutense de Madrid · Proyecto de Datos II</div>
   <div class="footer-status">
     <span class="status-dot"></span>
-    <span>Modelo embebido — sin servidor requerido</span>
+    <span>NYC Taxi Intelligence Platform</span>
   </div>
 </footer>
 
@@ -1768,6 +1721,26 @@ function switchTab(name) {
   document.querySelectorAll('.model-panel').forEach(p => p.classList.remove('active'));
   document.querySelector(`[data-tab="${name}"]`).classList.add('active');
   document.getElementById(`panel-${name}`).classList.add('active');
+}
+
+function switchDashboard(name) {
+  document.querySelectorAll('[data-dash]').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.dashboard-panel').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+  document.querySelector(`[data-dash="${name}"]`).classList.add('active');
+  const panel = document.getElementById(`dash-${name}`);
+  panel.style.display = 'block';
+  panel.classList.add('active');
+}
+
+function handleDashFile(event, panelId) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const panel = document.getElementById(panelId);
+  const iframe = panel.querySelector('iframe');
+  const placeholder = panel.querySelector('.map-placeholder');
+  if (iframe) { iframe.src = url; iframe.style.display = 'block'; }
+  if (placeholder) placeholder.style.display = 'none';
 }
 
 /* ══════════════════════════════════
@@ -1961,24 +1934,7 @@ function handleMapFile(event, mapId) {
   container.innerHTML = `<iframe src="${url}" style="width:100%;height:400px;border:none;"></iframe>`;
 }
 
-// Try to auto-load maps from static folder
-const MAP_FILES = [
-  { id: 'choroplet', file: '/static/maps/mapa_coropletico.html' },
-  { id: 'demand', file: '/static/maps/mapa_demanda.html' },
-  { id: 'linechart', file: '/static/maps/top5_lineas.html' },
-  { id: 'extra', file: '/static/maps/visualizacion_extra.html' },
-];
-
-MAP_FILES.forEach(({id, file}) => {
-  fetch(file, {method: 'HEAD'})
-    .then(res => {
-      if (res.ok) {
-        const container = document.getElementById(`container-${id}`);
-        container.innerHTML = `<iframe src="${file}" style="width:100%;height:400px;border:none;"></iframe>`;
-      }
-    })
-    .catch(() => {}); // silently ignore — placeholder already shown
-});
+// Dashboards loaded via iframe src attributes directly
 
 /* ══════════════════════════════════
    TOAST
