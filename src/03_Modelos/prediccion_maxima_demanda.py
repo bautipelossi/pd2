@@ -71,12 +71,13 @@ def get_zone_dict():
         return {}
 
 def evaluate_model(model, dataset):
-    """Calcula RMSE y MAE para un modelo dado sobre un dataset específico"""
+    """Calcula RMSE, MAE y R2 para un modelo dado sobre un dataset específico"""
     predictions = model.transform(dataset)
     eval_rmse = RegressionEvaluator(labelCol="demanda_viajes", predictionCol="prediction", metricName="rmse")
     eval_mae = RegressionEvaluator(labelCol="demanda_viajes", predictionCol="prediction", metricName="mae")
+    eval_r2 = RegressionEvaluator(labelCol="demanda_viajes", predictionCol="prediction", metricName="r2")
     
-    return eval_rmse.evaluate(predictions), eval_mae.evaluate(predictions)
+    return eval_rmse.evaluate(predictions), eval_mae.evaluate(predictions), eval_r2.evaluate(predictions)
 
 def train_and_compare(train_data, val_data):
     """Entrena modelos ultra-potenciados en Train, los evalúa en Validation y devuelve el ganador"""
@@ -103,7 +104,8 @@ def train_and_compare(train_data, val_data):
     pipeline_rf = Pipeline(stages=[indexer_zone, indexer_day, encoder, assembler, rf])
     print("\n> Entrenando Random Forest Potenciado (150 árboles)... [Paciencia, puede tardar]")
     model_rf = pipeline_rf.fit(train_data)
-    rmse_rf, mae_rf = evaluate_model(model_rf, val_data)
+    # --- CAMBIO AQUÍ: Añadimos r2_rf ---
+    rmse_rf, mae_rf, r2_rf = evaluate_model(model_rf, val_data)
 
     # 2. Gradient-Boosted Trees (Más iteraciones, profundidad controlada, aprendizaje lento)
     gbt = GBTRegressor(featuresCol="features", labelCol="demanda_viajes", 
@@ -111,13 +113,14 @@ def train_and_compare(train_data, val_data):
     pipeline_gbt = Pipeline(stages=[indexer_zone, indexer_day, encoder, assembler, gbt])
     print("> Entrenando Gradient-Boosted Trees Potenciado (80 iteraciones)... [Paciencia, puede tardar]")
     model_gbt = pipeline_gbt.fit(train_data)
-    rmse_gbt, mae_gbt = evaluate_model(model_gbt, val_data)
+    # --- CAMBIO AQUÍ: Añadimos r2_gbt ---
+    rmse_gbt, mae_gbt, r2_gbt = evaluate_model(model_gbt, val_data)
 
-    # Mostrar comparativa
+    # Mostrar comparativa (Añadido el R2 al print)
     print("\n" + "="*50)
     print(f" RESULTADOS EN VALIDATION (Modelos Ultra)")
-    print(f" RF  -> RMSE: {rmse_rf:.2f} | MAE: {mae_rf:.2f}")
-    print(f" GBT -> RMSE: {rmse_gbt:.2f} | MAE: {mae_gbt:.2f}")
+    print(f" RF  -> RMSE: {rmse_rf:.2f} | MAE: {mae_rf:.2f} | R2: {r2_rf:.4f}")
+    print(f" GBT -> RMSE: {rmse_gbt:.2f} | MAE: {mae_gbt:.2f} | R2: {r2_gbt:.4f}")
     print("="*50)
 
     if rmse_rf < rmse_gbt:
@@ -185,8 +188,8 @@ if __name__ == "__main__":
     # 2. Examen Final: Evaluar el ganador en Test
     print("\n" + "*"*50)
     print(" EXAMEN FINAL EN SET DE TEST (Batalla vs Baseline)")
-    rmse_test, mae_test = evaluate_model(best_model, test_df)
-    print(f" Rendimiento real -> RMSE: {rmse_test:.2f} | MAE: {mae_test:.2f}")
+    rmse_test, mae_test, r2_test = evaluate_model(best_model, test_df)
+    print(f" Rendimiento real -> RMSE: {rmse_test:.2f} | MAE: {mae_test:.2f} | R2: {r2_test:.4f}")
     print("*"*50)
 
     diccionario_oficial = get_zone_dict()

@@ -1,5 +1,6 @@
 import os
 import sys
+import platform
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
@@ -13,18 +14,21 @@ st.set_page_config(page_title="NYC Taxi Simulator Pro", layout="wide", page_icon
 # --- FUNCIONES DE CACHÉ (Para no recargar Spark cada vez que tocas un botón) ---
 @st.cache_resource
 def iniciar_spark_y_modelo():
+    # Variables de entorno universales para Python
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
-    os.environ['HADOOP_HOME'] = "C:/hadoop"
+    
+    # PARCHE MULTIPLATAFORMA: Evitamos la ruta Windows en Mac/Linux
+    if platform.system() == "Windows":
+        os.environ['HADOOP_HOME'] = "C:/hadoop"
     
     spark = SparkSession.builder.appName("NYC_Simulator").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     
-    # --- CORRECCIÓN AQUÍ: Usamos parents[1] para apuntar a src/modelos ---
+    # Rutas independientes del OS gracias a Pathlib
     ruta_modelo = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
     modelo = PipelineModel.load(ruta_modelo)
     
-    # El parquet SÍ está en la raíz (datos/limpios/), así que este se queda con parents[2]
     ruta_parquet = str(Path(__file__).resolve().parents[2] / "datos" / "limpios" / "resumen_zona_hora.parquet")
     dataset = spark.read.parquet(ruta_parquet)
     

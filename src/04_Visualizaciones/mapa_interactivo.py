@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import urllib.request
+import platform
 import pandas as pd
 import plotly.express as px
 import streamlit as st
@@ -15,14 +16,18 @@ st.set_page_config(page_title="NYC Taxi Map Simulator", layout="wide", page_icon
 # --- FUNCIONES DE CACHÉ (Evitan recargar todo al mover un deslizador) ---
 @st.cache_resource
 def iniciar_spark_y_modelo():
+    # Variables de entorno para el intérprete de Python
     os.environ['PYSPARK_PYTHON'] = sys.executable
     os.environ['PYSPARK_DRIVER_PYTHON'] = sys.executable
-    os.environ['HADOOP_HOME'] = "C:/hadoop"
+    
+    # PARCHE MULTIPLATAFORMA: Solo forzamos HADOOP_HOME si estamos en Windows
+    if platform.system() == "Windows":
+        os.environ['HADOOP_HOME'] = "C:/hadoop"
     
     spark = SparkSession.builder.appName("NYC_Map_Simulator").getOrCreate()
     spark.sparkContext.setLogLevel("ERROR")
     
-    # Rutas corregidas hacia la raíz del proyecto
+    # Rutas dinámicas e independientes del Sistema Operativo usando Pathlib
     ruta_modelo = str(Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_demanda")
     modelo = PipelineModel.load(ruta_modelo)
     
