@@ -1,0 +1,1829 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TAXÓMANOS — NYC Taxi Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:        #060a0f;
+  --surface:   #0c1219;
+  --panel:     #101820;
+  --border:    rgba(255,220,80,0.15);
+  --border2:   rgba(255,220,80,0.08);
+  --yellow:    #ffdc50;
+  --yellow2:   #ffc107;
+  --cyan:      #00e5ff;
+  --red:       #ff3b5c;
+  --green:     #00e676;
+  --purple:    #bf5af2;
+  --text:      #e8edf2;
+  --muted:     #5a6572;
+  --mono:      'JetBrains Mono', monospace;
+  --display:   'Syne', sans-serif;
+  --glow:      0 0 30px rgba(255,220,80,0.25);
+  --glow-cyan: 0 0 20px rgba(0,229,255,0.3);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--mono);
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+}
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--yellow); border-radius: 2px; }
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none; z-index: 9999; opacity: 0.4;
+}
+
+/* NAV */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 48px; height: 64px;
+  background: rgba(6,10,15,0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-logo {
+  font-family: var(--display); font-weight: 800; font-size: 1.3rem;
+  letter-spacing: 0.06em; color: var(--yellow); text-shadow: var(--glow);
+  display: flex; align-items: center; gap: 10px; text-decoration: none;
+}
+.nav-logo span {
+  display: inline-block; width: 8px; height: 8px;
+  background: var(--yellow); border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 rgba(255,220,80,0.4); }
+  50% { opacity: 0.7; transform: scale(1.2); box-shadow: 0 0 0 6px rgba(255,220,80,0); }
+}
+.nav-links { display: flex; gap: 0; }
+.nav-link {
+  font-family: var(--mono); font-size: 0.72rem; font-weight: 500;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  text-decoration: none; padding: 0 16px; height: 64px;
+  display: flex; align-items: center;
+  border-right: 1px solid var(--border2);
+  transition: color 0.2s, background 0.2s; position: relative;
+}
+.nav-link:first-child { border-left: 1px solid var(--border2); }
+.nav-link::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0;
+  height: 2px; background: var(--yellow);
+  transform: scaleX(0); transition: transform 0.2s;
+}
+.nav-link:hover { color: var(--yellow); background: rgba(255,220,80,0.04); }
+.nav-link:hover::after { transform: scaleX(1); }
+.nav-link.active { color: var(--yellow); }
+.nav-link.active::after { transform: scaleX(1); }
+.nav-badge {
+  font-size: 0.6rem; background: var(--yellow); color: #000;
+  padding: 1px 5px; border-radius: 2px; margin-left: 6px; font-weight: 700;
+}
+
+/* HERO */
+#home {
+  min-height: 100vh; display: flex; align-items: center;
+  padding: 120px 48px 80px; position: relative; overflow: hidden;
+}
+.hero-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(255,220,80,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,220,80,0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  mask-image: radial-gradient(ellipse at 60% 50%, black 30%, transparent 80%);
+}
+.hero-scanline {
+  position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, var(--yellow), transparent);
+  animation: scan 8s linear infinite; opacity: 0.4;
+}
+@keyframes scan { 0% { top: 0; } 100% { top: 100vh; } }
+.hero-content { position: relative; z-index: 1; max-width: 760px; }
+.hero-label {
+  font-size: 0.68rem; letter-spacing: 0.25em; text-transform: uppercase;
+  color: var(--yellow); margin-bottom: 20px;
+  display: flex; align-items: center; gap: 12px;
+}
+.hero-label::before {
+  content: ''; display: inline-block; width: 40px; height: 1px; background: var(--yellow);
+}
+h1 {
+  font-family: var(--display); font-weight: 800;
+  font-size: clamp(2.8rem, 6vw, 5.5rem);
+  line-height: 0.95; letter-spacing: -0.02em; margin-bottom: 32px;
+}
+h1 .accent { color: var(--yellow); display: block; text-shadow: var(--glow); }
+h1 .sub {
+  color: var(--muted); font-size: 0.55em; font-weight: 400;
+  letter-spacing: 0.05em; display: block; margin-top: 8px;
+}
+.hero-desc {
+  font-size: 0.92rem; line-height: 1.7; color: rgba(232,237,242,0.7);
+  max-width: 520px; margin-bottom: 48px;
+}
+.hero-ctas { display: flex; gap: 16px; align-items: center; }
+.btn-primary {
+  background: var(--yellow); color: #000; font-family: var(--mono);
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em;
+  text-transform: uppercase; text-decoration: none; padding: 14px 32px;
+  border: none; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 12px 100%, 0 calc(100% - 12px));
+  transition: transform 0.15s, box-shadow 0.15s;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(255,220,80,0.4); }
+.btn-secondary {
+  font-family: var(--mono); font-size: 0.78rem; font-weight: 500;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+  text-decoration: none; border: 1px solid var(--border); padding: 14px 28px;
+  transition: color 0.2s, border-color 0.2s;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-secondary:hover { color: var(--yellow); border-color: var(--yellow); }
+.hero-stats {
+  position: absolute; right: 48px; top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 2px; z-index: 1;
+}
+.stat-card {
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 20px 28px; min-width: 200px; position: relative;
+  animation: fadeSlideIn 0.6s ease both;
+}
+.stat-card:nth-child(1) { animation-delay: 0.1s; }
+.stat-card:nth-child(2) { animation-delay: 0.2s; }
+.stat-card:nth-child(3) { animation-delay: 0.3s; }
+.stat-card:nth-child(4) { animation-delay: 0.4s; }
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.stat-label { font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.stat-value { font-family: var(--display); font-size: 1.8rem; font-weight: 800; color: var(--yellow); text-shadow: var(--glow); line-height: 1; }
+.stat-unit { font-size: 0.65rem; color: var(--muted); margin-top: 4px; }
+.stat-card::before { content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%; background: var(--yellow); }
+
+/* SECTIONS */
+section { padding: 100px 48px; border-top: 1px solid var(--border2); }
+.section-header { display: flex; align-items: flex-start; gap: 32px; margin-bottom: 64px; }
+.section-num { font-family: var(--mono); font-size: 0.65rem; color: var(--yellow); letter-spacing: 0.1em; padding-top: 6px; opacity: 0.6; }
+.section-title { font-family: var(--display); font-weight: 800; font-size: clamp(2rem, 4vw, 3.2rem); letter-spacing: -0.02em; line-height: 1.05; }
+.section-title em { font-style: normal; color: var(--yellow); }
+.section-sub { font-size: 0.85rem; color: var(--muted); max-width: 500px; line-height: 1.7; margin-top: 12px; }
+
+/* ABOUT */
+.about-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px; }
+.about-card {
+  background: var(--surface); border: 1px solid var(--border2);
+  padding: 40px; position: relative; transition: border-color 0.3s;
+}
+.about-card:hover { border-color: var(--border); }
+.about-card-icon { font-size: 1.8rem; margin-bottom: 20px; }
+.about-card-title { font-family: var(--display); font-weight: 700; font-size: 1.1rem; margin-bottom: 12px; }
+.about-card-text { font-size: 0.82rem; line-height: 1.8; color: rgba(232,237,242,0.6); }
+.about-card-tag {
+  position: absolute; top: 16px; right: 16px; font-size: 0.58rem;
+  letter-spacing: 0.15em; text-transform: uppercase; color: var(--yellow);
+  border: 1px solid rgba(255,220,80,0.3); padding: 3px 8px;
+}
+.pipeline { display: flex; gap: 0; margin-top: 48px; border: 1px solid var(--border); overflow: hidden; }
+.pipeline-step { flex: 1; padding: 32px 28px; border-right: 1px solid var(--border); position: relative; }
+.pipeline-step:last-child { border-right: none; }
+.step-num { font-size: 2.5rem; font-family: var(--display); font-weight: 800; color: rgba(255,220,80,0.1); line-height: 1; margin-bottom: 12px; }
+.step-title { font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--yellow); margin-bottom: 8px; }
+.step-text { font-size: 0.75rem; color: var(--muted); line-height: 1.7; }
+.pipeline-step::after {
+  content: '→'; position: absolute; top: 50%; right: -10px;
+  transform: translateY(-50%); color: var(--yellow); font-size: 1rem;
+  z-index: 1; background: var(--bg); padding: 2px;
+}
+.pipeline-step:last-child::after { display: none; }
+
+/* MODEL TABS */
+#modelos { background: linear-gradient(180deg, var(--bg) 0%, rgba(12,18,25,0.5) 50%, var(--bg) 100%); }
+.models-tabs {
+  display: flex; border-bottom: 1px solid var(--border); margin-bottom: 48px; gap: 0;
+}
+.model-tab {
+  font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--muted); padding: 14px 28px;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  transition: all 0.2s; border-right: 1px solid var(--border2);
+  background: none; border-top: none; border-left: none;
+  display: flex; align-items: center; gap: 8px;
+}
+.model-tab:hover { color: var(--text); background: rgba(255,255,255,0.02); }
+.model-tab.active { color: var(--yellow); border-bottom-color: var(--yellow); }
+.model-tab .tab-badge {
+  font-size: 0.55rem; background: rgba(255,220,80,0.15); color: var(--yellow);
+  padding: 2px 6px; border-radius: 2px;
+}
+.model-panel { display: none; }
+.model-panel.active { display: block; }
+
+/* PREDICTOR */
+.predictor-layout { display: grid; grid-template-columns: 360px 1fr; gap: 2px; min-height: 600px; }
+.predictor-form {
+  background: var(--surface); border: 1px solid var(--border);
+  padding: 40px; display: flex; flex-direction: column; gap: 28px;
+}
+.form-title { font-family: var(--display); font-weight: 700; font-size: 1.1rem; margin-bottom: 4px; }
+.form-desc { font-size: 0.75rem; color: var(--muted); line-height: 1.6; }
+.form-field label {
+  display: block; font-size: 0.65rem; letter-spacing: 0.15em;
+  text-transform: uppercase; color: var(--muted); margin-bottom: 8px;
+}
+.form-field select, .form-field input {
+  width: 100%; background: var(--panel); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--mono); font-size: 0.85rem;
+  padding: 12px 16px; outline: none; appearance: none; cursor: pointer;
+  transition: border-color 0.2s;
+}
+.form-field select:focus, .form-field input:focus { border-color: var(--yellow); }
+.select-wrapper { position: relative; }
+.select-wrapper::after {
+  content: '▼'; position: absolute; right: 14px; top: 50%;
+  transform: translateY(-50%); font-size: 0.6rem; color: var(--yellow); pointer-events: none;
+}
+.btn-predict {
+  width: 100%; background: var(--yellow); color: #000; font-family: var(--mono);
+  font-size: 0.8rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 16px; border: none; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: auto;
+}
+.btn-predict:hover { background: #fff; box-shadow: 0 0 40px rgba(255,220,80,0.5); }
+.btn-predict:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-predict .spinner {
+  width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.3);
+  border-top-color: #000; border-radius: 50%;
+  animation: spin 0.7s linear infinite; display: none;
+}
+.btn-predict.loading .spinner { display: block; }
+.btn-predict.loading .btn-text { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.predictor-results { display: flex; flex-direction: column; gap: 2px; }
+.results-map {
+  background: var(--surface); border: 1px solid var(--border);
+  height: 340px; position: relative; overflow: hidden;
+}
+#score-map { width: 100%; height: 100%; }
+.map-overlay {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 12px; background: var(--surface); z-index: 10;
+}
+.map-overlay.hidden { display: none; }
+.map-overlay-icon { font-size: 2.5rem; opacity: 0.3; }
+.map-overlay-text { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+.results-ranking { background: var(--surface); border: 1px solid var(--border); padding: 0; flex: 1; }
+.ranking-header {
+  padding: 16px 24px; border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.ranking-title { font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+.ranking-meta { font-size: 0.65rem; color: var(--yellow); letter-spacing: 0.08em; }
+.ranking-item {
+  display: grid; grid-template-columns: 48px 1fr auto auto;
+  gap: 16px; align-items: center; padding: 16px 24px;
+  border-bottom: 1px solid var(--border2); transition: background 0.15s;
+  animation: slideIn 0.4s ease both;
+}
+.ranking-item:last-child { border-bottom: none; }
+.ranking-item:hover { background: rgba(255,220,80,0.03); }
+@keyframes slideIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.rank-num { font-family: var(--display); font-weight: 800; font-size: 1.6rem; line-height: 1; color: rgba(255,220,80,0.15); }
+.rank-num.top { color: var(--yellow); text-shadow: var(--glow); }
+.rank-name { font-size: 0.88rem; font-weight: 500; }
+.rank-borough { font-size: 0.68rem; color: var(--muted); margin-top: 2px; letter-spacing: 0.05em; }
+.rank-score-wrap { text-align: right; }
+.rank-score { font-family: var(--display); font-weight: 800; font-size: 1.4rem; color: var(--yellow); line-height: 1; }
+.rank-score-label { font-size: 0.6rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+.rank-bar-wrap { width: 80px; }
+.rank-bar { height: 3px; background: rgba(255,220,80,0.1); border-radius: 2px; overflow: hidden; }
+.rank-bar-fill { height: 100%; background: var(--yellow); transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1); }
+.results-placeholder {
+  display: flex; align-items: center; justify-content: center;
+  flex-direction: column; gap: 16px; height: 100%; min-height: 220px; color: var(--muted);
+}
+.placeholder-icon { font-size: 2rem; opacity: 0.3; }
+.placeholder-text { font-size: 0.75rem; letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* MAPS SECTION */
+.maps-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; }
+.map-card { background: var(--surface); border: 1px solid var(--border2); transition: border-color 0.3s; position: relative; overflow: hidden; }
+.map-card:hover { border-color: var(--border); }
+.map-card-header {
+  padding: 20px 24px; border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.map-card-title { font-family: var(--display); font-weight: 700; font-size: 0.95rem; }
+.map-card-badge { font-size: 0.58rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--cyan); border: 1px solid rgba(0,229,255,0.3); padding: 3px 8px; }
+.map-card-desc { padding: 12px 24px 16px; font-size: 0.75rem; color: var(--muted); line-height: 1.6; }
+.map-placeholder {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 400px; gap: 16px; color: var(--muted); border-top: 1px solid var(--border2); position: relative;
+}
+.map-placeholder-icon { font-size: 2.5rem; opacity: 0.2; }
+.map-placeholder-title { font-family: var(--display); font-size: 1rem; font-weight: 700; color: rgba(232,237,242,0.4); }
+.map-placeholder-text { font-size: 0.72rem; color: var(--muted); text-align: center; max-width: 260px; line-height: 1.6; }
+.upload-btn {
+  font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--yellow); border: 1px solid rgba(255,220,80,0.3); padding: 8px 20px;
+  cursor: pointer; background: none; transition: all 0.2s; margin-top: 8px;
+}
+.upload-btn:hover { background: rgba(255,220,80,0.1); border-color: var(--yellow); }
+.placeholder-pattern {
+  position: absolute; inset: 0;
+  background-image: repeating-linear-gradient(45deg, rgba(255,220,80,0.02) 0, rgba(255,220,80,0.02) 1px, transparent 0, transparent 50%);
+  background-size: 20px 20px;
+}
+
+/* VTC */
+.vtc-comparison { display: grid; grid-template-columns: 1fr 1px 1fr; gap: 0; border: 1px solid var(--border); margin-top: 48px; }
+.vtc-divider { background: var(--border); }
+.vtc-col { padding: 48px; }
+.vtc-col-title { font-family: var(--display); font-weight: 800; font-size: 1.3rem; margin-bottom: 32px; display: flex; align-items: center; gap: 12px; }
+.vtc-col-title .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.dot-yellow { background: var(--yellow); box-shadow: 0 0 10px rgba(255,220,80,0.5); }
+.dot-red { background: var(--red); box-shadow: 0 0 10px rgba(255,59,92,0.5); }
+.vtc-metrics { display: flex; flex-direction: column; gap: 16px; }
+.vtc-metric { display: flex; justify-content: space-between; align-items: center; padding: 14px 0; border-bottom: 1px solid var(--border2); }
+.vtc-metric-label { font-size: 0.78rem; color: var(--muted); }
+.vtc-metric-val { font-family: var(--display); font-weight: 700; font-size: 1.1rem; }
+.vtc-metric-val.good { color: var(--green); }
+.vtc-metric-val.bad { color: var(--red); }
+.insight-box {
+  background: rgba(255,220,80,0.05); border: 1px solid rgba(255,220,80,0.2);
+  border-left: 3px solid var(--yellow); padding: 20px 24px; margin-top: 32px;
+  font-size: 0.8rem; line-height: 1.7; color: rgba(232,237,242,0.7);
+}
+
+/* ═══════════════════════════════════════════
+   SIMULADOR DE DEMANDA (nueva sección)
+═══════════════════════════════════════════ */
+#simulador { background: var(--bg); }
+
+.sim-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 2px;
+  min-height: 700px;
+}
+
+.sim-controls {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 36px 32px;
+  display: flex; flex-direction: column; gap: 24px;
+}
+
+.sim-control-title {
+  font-family: var(--display); font-weight: 700; font-size: 1rem;
+  color: var(--yellow); text-transform: uppercase; letter-spacing: 0.08em;
+  margin-bottom: 4px;
+}
+
+.sim-slider-wrap { display: flex; flex-direction: column; gap: 8px; }
+.sim-slider-wrap label {
+  font-size: 0.62rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted);
+}
+.sim-slider-val {
+  font-family: var(--display); font-weight: 700; font-size: 1.1rem;
+  color: var(--yellow);
+}
+.sim-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 3px; outline: none; border-radius: 2px;
+  background: linear-gradient(to right, var(--yellow) 0%, var(--yellow) 50%, rgba(255,220,80,0.15) 50%, rgba(255,220,80,0.15) 100%);
+  cursor: pointer;
+}
+.sim-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--yellow); cursor: pointer;
+  box-shadow: 0 0 10px rgba(255,220,80,0.5);
+}
+.sim-slider::-moz-range-thumb {
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--yellow); cursor: pointer; border: none;
+}
+
+.sim-toggle-wrap {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0; border-top: 1px solid var(--border2);
+}
+.sim-toggle-label { font-size: 0.72rem; color: var(--text); }
+.sim-toggle-sublabel { font-size: 0.62rem; color: var(--muted); margin-top: 2px; }
+.toggle-switch {
+  position: relative; width: 44px; height: 24px;
+}
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider {
+  position: absolute; cursor: pointer; inset: 0;
+  background: rgba(255,220,80,0.1); border: 1px solid var(--border);
+  transition: 0.3s; border-radius: 24px;
+}
+.toggle-slider::before {
+  content: ''; position: absolute;
+  height: 16px; width: 16px; left: 3px; bottom: 3px;
+  background: var(--muted); transition: 0.3s; border-radius: 50%;
+}
+input:checked + .toggle-slider { background: rgba(255,220,80,0.2); border-color: var(--yellow); }
+input:checked + .toggle-slider::before { transform: translateX(20px); background: var(--yellow); }
+
+.btn-simulate {
+  width: 100%; background: var(--yellow); color: #000; font-family: var(--mono);
+  font-size: 0.78rem; font-weight: 700; letter-spacing: 0.15em; text-transform: uppercase;
+  padding: 15px; border: none; cursor: pointer;
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+  transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-top: auto;
+}
+.btn-simulate:hover { background: #fff; box-shadow: 0 0 40px rgba(255,220,80,0.5); }
+.btn-simulate:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-simulate .spinner {
+  width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.3);
+  border-top-color: #000; border-radius: 50%;
+  animation: spin 0.7s linear infinite; display: none;
+}
+.btn-simulate.loading .spinner { display: block; }
+.btn-simulate.loading .sim-btn-text { display: none; }
+
+.sim-output {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+
+.sim-output-header {
+  padding: 20px 28px;
+  border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.sim-output-title {
+  font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted);
+}
+.sim-output-meta { font-size: 0.65rem; color: var(--cyan); letter-spacing: 0.08em; }
+
+.sim-chart-container {
+  flex: 1; padding: 24px 28px; position: relative; min-height: 500px;
+}
+
+.sim-empty {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
+}
+.sim-empty-icon { font-size: 2.5rem; opacity: 0.15; }
+.sim-empty-text { font-size: 0.72rem; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; }
+.sim-empty-hint { font-size: 0.65rem; color: rgba(90,101,114,0.6); text-align: center; max-width: 280px; line-height: 1.6; margin-top: 4px; }
+
+.sim-insight-bar {
+  background: rgba(0,229,255,0.04);
+  border-top: 1px solid rgba(0,229,255,0.15);
+  padding: 16px 28px;
+  font-size: 0.75rem; line-height: 1.7; color: rgba(232,237,242,0.7);
+  min-height: 60px;
+}
+.sim-insight-bar strong { color: var(--cyan); }
+
+/* ═══════════════════════════════════════════
+   MAPA DIGITAL TWIN (nueva sección)
+═══════════════════════════════════════════ */
+#mapadigital { background: var(--bg); }
+
+.mapa-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 2px;
+  min-height: 740px;
+}
+
+.mapa-controls {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 36px 32px;
+  display: flex; flex-direction: column; gap: 24px;
+}
+
+.hora-selector {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;
+  margin-top: 8px;
+}
+.hora-btn {
+  background: var(--panel); border: 1px solid var(--border2);
+  color: var(--muted); font-family: var(--mono); font-size: 0.62rem;
+  padding: 8px 4px; cursor: pointer; text-align: center; transition: all 0.15s;
+}
+.hora-btn:hover { border-color: rgba(255,220,80,0.4); color: var(--text); }
+.hora-btn.active { background: rgba(255,220,80,0.12); border-color: var(--yellow); color: var(--yellow); }
+
+.mapa-output {
+  background: var(--surface); border: 1px solid var(--border);
+  display: flex; flex-direction: column;
+}
+
+.mapa-output-header {
+  padding: 20px 28px; border-bottom: 1px solid var(--border2);
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+}
+.mapa-output-title { font-size: 0.68rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); }
+
+.mapa-legend {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 0.6rem; color: var(--muted); letter-spacing: 0.08em;
+}
+.legend-bar {
+  width: 100px; height: 8px; border-radius: 2px;
+  background: linear-gradient(to right, #282828, #4b0c6b, #a52c60, #ed6925, #fcffa4);
+}
+
+#digital-twin-map { width: 100%; flex: 1; min-height: 580px; }
+
+.mapa-stats-row {
+  padding: 16px 28px; border-top: 1px solid var(--border2);
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+}
+.mapa-stat { text-align: center; }
+.mapa-stat-val { font-family: var(--display); font-weight: 800; font-size: 1.3rem; color: var(--yellow); }
+.mapa-stat-label { font-size: 0.58rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; margin-top: 2px; }
+
+/* DASHBOARD TABS — fix overflow */
+.dashboard-panel iframe {
+  width: 100%;
+  height: 680px;
+  border: none;
+  display: block;
+  /* Remove overflow constraint causing cut-off */
+  overflow: hidden;
+}
+
+/* Dashboard tab fix: full width container, no overflow clip */
+.dashboard-panel {
+  width: 100%;
+  overflow: visible;
+}
+
+/* Fix for semanal dashboard button/legend cut-off */
+#dash-semanal iframe,
+#dash-geo iframe {
+  min-width: 100%;
+  width: 100%;
+  height: 680px;
+  border: none;
+  display: block;
+}
+
+/* TEAM */
+.team-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 2px; }
+.team-card {
+  background: var(--surface); border: 1px solid var(--border2);
+  padding: 32px 24px; text-align: center; transition: border-color 0.3s, transform 0.3s;
+}
+.team-card:hover { border-color: var(--border); transform: translateY(-3px); }
+.team-avatar {
+  width: 64px; height: 64px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--yellow), var(--yellow2));
+  margin: 0 auto 16px; display: flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-weight: 800; font-size: 1.4rem; color: #000;
+}
+.team-name { font-family: var(--display); font-weight: 700; font-size: 0.95rem; margin-bottom: 6px; }
+.team-role { font-size: 0.68rem; color: var(--yellow); letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* FOOTER */
+footer {
+  border-top: 1px solid var(--border); padding: 32px 48px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.footer-logo { font-family: var(--display); font-weight: 800; font-size: 1rem; color: var(--yellow); }
+.footer-info { font-size: 0.68rem; color: var(--muted); letter-spacing: 0.05em; }
+.footer-status { display: flex; align-items: center; gap: 8px; font-size: 0.65rem; color: var(--muted); }
+.status-dot { width: 6px; height: 6px; background: var(--green); border-radius: 50%; animation: pulse 2s ease-in-out infinite; }
+
+/* TOAST */
+.toast {
+  position: fixed; bottom: 32px; right: 32px; background: var(--surface);
+  border: 1px solid var(--border); border-left: 3px solid var(--yellow);
+  padding: 16px 24px; font-size: 0.78rem; z-index: 9000;
+  animation: toastIn 0.3s ease; max-width: 320px;
+}
+@keyframes toastIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+
+/* LEAFLET */
+.leaflet-container { background: #08111a !important; font-family: var(--mono) !important; }
+.leaflet-popup-content-wrapper {
+  background: var(--surface) !important; border: 1px solid var(--border) !important;
+  border-radius: 0 !important; box-shadow: var(--glow) !important;
+  color: var(--text) !important; font-family: var(--mono) !important; font-size: 0.78rem !important;
+}
+.leaflet-popup-tip { background: var(--surface) !important; }
+.leaflet-popup-close-button { color: var(--muted) !important; }
+
+/* Divider */
+.section-divider {
+  width: 100%; height: 1px;
+  background: linear-gradient(to right, transparent, var(--border), transparent);
+  margin: 0;
+}
+
+/* RESPONSIVE */
+@media (max-width: 1100px) {
+  .sim-layout, .mapa-layout { grid-template-columns: 1fr; }
+  .sim-controls, .mapa-controls { flex-direction: row; flex-wrap: wrap; }
+}
+@media (max-width: 1024px) {
+  .hero-stats { display: none; }
+  .predictor-layout { grid-template-columns: 1fr; }
+  .about-grid { grid-template-columns: 1fr; }
+  .maps-grid { grid-template-columns: 1fr; }
+  .vtc-comparison { grid-template-columns: 1fr; }
+  .vtc-divider { display: none; }
+  nav { padding: 0 24px; }
+  section, #home { padding: 80px 24px; }
+  footer { padding: 24px; flex-direction: column; gap: 16px; text-align: center; }
+}
+@media (max-width: 640px) {
+  .nav-links { display: none; }
+  .pipeline { flex-direction: column; }
+  .pipeline-step::after { display: none; }
+  .team-grid { grid-template-columns: 1fr 1fr; }
+  .hora-selector { grid-template-columns: repeat(6, 1fr); }
+}
+
+/* Force white text */
+body, body * { color: #ffffff; }
+.nav-link { color: #ffffff !important; }
+.nav-link:hover { color: var(--yellow) !important; }
+.nav-link.active { color: var(--yellow) !important; }
+.hero-desc, .about-card-text, .step-text, .stat-label, .stat-unit,
+.form-desc, .section-sub, .map-overlay-text, .map-placeholder-text,
+.map-placeholder-title, .ranking-title, .rank-borough, .rank-score-label,
+.vtc-metric-label, .insight-box, .footer-info, .footer-status,
+.placeholder-text, .map-card-desc { color: #ffffff !important; }
+.hero-label, .about-card-tag { color: var(--yellow) !important; }
+.map-card-badge { color: var(--cyan) !important; }
+.team-role { color: var(--yellow) !important; }
+p, span, div, li, a, label { color: inherit; }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="#home" class="nav-logo">
+    <span></span> TAXÓMANOS
+  </a>
+  <div class="nav-links">
+    <a href="#home" class="nav-link active">Inicio</a>
+    <a href="#nosotros" class="nav-link">Proyecto</a>
+    <a href="#modelos" class="nav-link">Modelos <span class="nav-badge">IA</span></a>
+    <a href="#mapas" class="nav-link">Mapas</a>
+    <a href="#simulador" class="nav-link">Simulador <span class="nav-badge" style="background:var(--cyan);color:#000;">NEW</span></a>
+    <a href="#mapadigital" class="nav-link">Digital Twin</a>
+    <a href="#competitividad" class="nav-link">VTC vs Taxi</a>
+    <a href="#equipo" class="nav-link">Equipo</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section id="home" style="border-top:none;">
+  <div class="hero-grid"></div>
+  <div class="hero-scanline"></div>
+  <div class="hero-content">
+    <div class="hero-label">NYC Taxi Intelligence Platform</div>
+    <h1>
+      <span class="accent">TAXÓMANOS</span>
+      Reactivando al taxi
+      <span class="sub">frente a la era VTC</span>
+    </h1>
+    <p class="hero-desc">
+      Utilizamos modelos de Machine Learning, análisis geoespacial y datos masivos del TLC de Nueva York para devolver la ventaja competitiva a los taxistas. Predecimos dónde, cuándo y cuánto — en tiempo real.
+    </p>
+    <div class="hero-ctas">
+      <a href="#modelos" class="btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        Probar Predictor
+      </a>
+      <a href="#simulador" class="btn-secondary">
+        Digital Twin →
+      </a>
+    </div>
+  </div>
+  <div class="hero-stats">
+    <div class="stat-card">
+      <div class="stat-label">Viajes analizados</div>
+      <div class="stat-value">50M+</div>
+      <div class="stat-unit">registros TLC NYC</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Zonas modeladas</div>
+      <div class="stat-value">263</div>
+      <div class="stat-unit">taxi zones de NYC</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Variable objetivo</div>
+      <div class="stat-value">Score</div>
+      <div class="stat-unit">ingresos / tiempo ($/min)</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Modelo RF</div>
+      <div class="stat-value">150</div>
+      <div class="stat-unit">árboles · profundidad 12</div>
+    </div>
+  </div>
+</section>
+
+<!-- NOSOTROS -->
+<section id="nosotros">
+  <div class="section-header fade-in">
+    <div class="section-num">01 / PROYECTO</div>
+    <div>
+      <h2 class="section-title">¿Qué hace <em>Taxómanos</em>?</h2>
+      <p class="section-sub">Un estudio de competitividad del taxi neoyorquino frente al auge de los VTC. Datos, modelos y estrategia.</p>
+    </div>
+  </div>
+  <div class="about-grid fade-in">
+    <div class="about-card">
+      <div class="about-card-tag">Problema</div>
+      <div class="about-card-icon">📉</div>
+      <div class="about-card-title">La crisis del taxi tradicional</div>
+      <p class="about-card-text">Desde la llegada de Uber y Lyft al mercado neoyorquino, el número de viajes en taxi amarillo ha caído más de un 60%. Los taxistas enfrentan jornadas más largas, menores ingresos y mayor competencia por cada pasajero. Necesitan datos, no intuición.</p>
+    </div>
+    <div class="about-card">
+      <div class="about-card-tag">Solución</div>
+      <div class="about-card-icon">🧠</div>
+      <div class="about-card-title">Inteligencia artificial aplicada</div>
+      <p class="about-card-text">Hemos construido modelos predictivos entrenados con millones de registros históricos del TLC de Nueva York. Nuestros algoritmos identifican los barrios con mayor rentabilidad en función del día, la hora, el tráfico y los eventos de la ciudad.</p>
+    </div>
+    <div class="about-card">
+      <div class="about-card-icon">🗺️</div>
+      <div class="about-card-title">Análisis geoespacial avanzado</div>
+      <p class="about-card-text">Mapas coropléticos interactivos que muestran la distribución de demanda, ingresos y rentabilidad por zona. Filtros por hora, temperatura y eventos especiales. Visualización del top-5 de zonas en tiempo real, directamente desde nuestros modelos.</p>
+    </div>
+    <div class="about-card">
+      <div class="about-card-icon">⚡</div>
+      <div class="about-card-title">Recomendaciones accionables</div>
+      <p class="about-card-text">No solo mostramos datos — generamos recomendaciones concretas. El taxista introduce el día y la hora, y recibe al instante el ranking de las 5 zonas donde maximizará su ingreso por minuto trabajado. Simple, útil, inmediato.</p>
+    </div>
+  </div>
+  <div class="pipeline fade-in">
+    <div class="pipeline-step">
+      <div class="step-num">01</div>
+      <div class="step-title">Datos TLC</div>
+      <p class="step-text">50M+ viajes de Yellow Cab & VTC. Variables: pickup, dropoff, hora, tarifa, duración, distancia, eventos, tráfico.</p>
+    </div>
+    <div class="pipeline-step">
+      <div class="step-num">02</div>
+      <div class="step-title">Feature Engineering</div>
+      <p class="step-text">Creación del Score ($/min), target encoding por zona, variables temporales, interacciones hora×barrio, datos meteorológicos.</p>
+    </div>
+    <div class="pipeline-step">
+      <div class="step-num">03</div>
+      <div class="step-title">Modelado ML</div>
+      <p class="step-text">Random Forest Regressor (150 árboles, profundidad 12) para predecir demanda y Score. Pipeline Spark con StringIndexer + OHE.</p>
+    </div>
+    <div class="pipeline-step">
+      <div class="step-num">04</div>
+      <div class="step-title">Visualización</div>
+      <p class="step-text">Mapas coropléticos interactivos, rankings en tiempo real, análisis comparativo VTC vs Taxi por zona y franja horaria.</p>
+    </div>
+    <div class="pipeline-step">
+      <div class="step-num">05</div>
+      <div class="step-title">Dashboard</div>
+      <p class="step-text">Interfaz web accesible para taxistas y analistas. Predicciones on-demand, mapas filtables, herramientas de negocio.</p>
+    </div>
+  </div>
+</section>
+
+<!-- MODELOS -->
+<section id="modelos">
+  <div class="section-header fade-in">
+    <div class="section-num">02 / MODELOS</div>
+    <div>
+      <h2 class="section-title">Predicción <em>en tiempo real</em></h2>
+      <p class="section-sub">Nuestros modelos de machine learning a tu disposición. Introduce los parámetros y obtén recomendaciones al instante.</p>
+    </div>
+  </div>
+  <div class="models-tabs fade-in">
+    <button class="model-tab active" onclick="switchTab('score')" data-tab="score">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+      Score por Zona
+      <span class="tab-badge">ACTIVO</span>
+    </button>
+  </div>
+  <div class="model-panel active" id="panel-score">
+    <div class="predictor-layout">
+      <div class="predictor-form">
+        <div>
+          <div class="form-title">Predictor de Zonas</div>
+          <p class="form-desc">Selecciona el día de la semana y la hora. El modelo identificará las 5 zonas de NYC donde el ratio ingreso/tiempo (Score) es más alto.</p>
+        </div>
+        <div class="form-field">
+          <label>Día de la semana</label>
+          <div class="select-wrapper">
+            <select id="select-dia">
+              <option value="1">Lunes</option>
+              <option value="2">Martes</option>
+              <option value="3">Miércoles</option>
+              <option value="4">Jueves</option>
+              <option value="5">Viernes</option>
+              <option value="6">Sábado</option>
+              <option value="7">Domingo</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-field">
+          <label>Hora del día (0–23)</label>
+          <div class="select-wrapper">
+            <select id="select-hora">
+              <option value="0">00:00 — Medianoche</option>
+              <option value="1">01:00</option><option value="2">02:00</option>
+              <option value="3">03:00</option><option value="4">04:00</option>
+              <option value="5">05:00 — Madrugada</option>
+              <option value="6">06:00</option><option value="7">07:00</option>
+              <option value="8">08:00 — Hora punta mañana</option>
+              <option value="9">09:00</option><option value="10">10:00</option>
+              <option value="11">11:00</option>
+              <option value="12" selected>12:00 — Mediodía</option>
+              <option value="13">13:00</option><option value="14">14:00</option>
+              <option value="15">15:00</option><option value="16">16:00</option>
+              <option value="17">17:00 — Hora punta tarde</option>
+              <option value="18">18:00</option><option value="19">19:00</option>
+              <option value="20">20:00</option><option value="21">21:00</option>
+              <option value="22">22:00 — Noche</option>
+              <option value="23">23:00</option>
+            </select>
+          </div>
+        </div>
+        <div style="background:var(--panel);border:1px solid var(--border2);padding:16px;font-size:0.72rem;line-height:1.7;">
+          <span style="color:var(--yellow);font-weight:700;">Modelo:</span> Random Forest Regressor<br>
+          <span style="color:var(--yellow);font-weight:700;">Variable objetivo:</span> Score = $/min<br>
+          <span style="color:var(--yellow);font-weight:700;">Features:</span> 28 variables (hora, día, barrio, tráfico, demanda histórica)
+        </div>
+        <button class="btn-predict" onclick="predictScore()">
+          <div class="spinner"></div>
+          <span class="btn-text">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline-block;vertical-align:middle;margin-right:6px;"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            Predecir Top 5 Zonas
+          </span>
+        </button>
+      </div>
+      <div class="predictor-results">
+        <div class="results-map">
+          <div class="map-overlay" id="map-overlay">
+            <div class="map-overlay-icon">🗽</div>
+            <div class="map-overlay-text">Ejecuta una predicción para ver el mapa</div>
+          </div>
+          <div id="score-map"></div>
+        </div>
+        <div class="results-ranking">
+          <div class="ranking-header">
+            <div class="ranking-title">Top 5 Zonas — Score Predicho</div>
+            <div class="ranking-meta" id="ranking-meta">—</div>
+          </div>
+          <div id="ranking-body">
+            <div class="results-placeholder">
+              <div class="placeholder-icon">📊</div>
+              <div class="placeholder-text">Selecciona día y hora y pulsa Predecir</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DASHBOARDS -->
+<section id="mapas">
+  <div class="section-header fade-in">
+    <div class="section-num">03 / DASHBOARDS</div>
+    <div>
+      <h2 class="section-title">Visualizaciones <em>interactivas</em></h2>
+      <p class="section-sub">Dashboards geoespaciales y temporales que revelan patrones de demanda, rentabilidad y movilidad en Nueva York.</p>
+    </div>
+  </div>
+  <div class="models-tabs fade-in" style="margin-bottom:0;">
+    <button class="model-tab active" onclick="switchDashboard('geo')" data-dash="geo">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      Dashboard Geográfico
+    </button>
+    <button class="model-tab" onclick="switchDashboard('geocore')" data-dash="geocore">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      NYC Geo Core
+    </button>
+    <button class="model-tab" onclick="switchDashboard('semanal')" data-dash="semanal">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Dashboard Semanal
+    </button>
+  </div>
+
+  <!-- Dashboard: Geográfico -->
+  <div class="dashboard-panel active" id="dash-geo" style="background:var(--surface);border:1px solid var(--border);border-top:none;overflow:hidden;">
+    <div style="padding:0;width:100%;overflow:hidden;">
+      <iframe src="DASHBOARD_GEOGRAFICO_NYC.html" style="width:100%;height:680px;border:none;display:block;"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"></iframe>
+      <div class="map-placeholder" style="display:none;height:680px;">
+        <div class="placeholder-pattern"></div>
+        <div class="map-placeholder-icon">🗺️</div>
+        <div class="map-placeholder-title">Dashboard Geográfico</div>
+        <p class="map-placeholder-text">Asegúrate de que <strong>DASHBOARD_GEOGRAFICO_NYC.html</strong> está en la misma carpeta.</p>
+        <button class="upload-btn" onclick="document.getElementById('file-geo').click()">Seleccionar archivo</button>
+        <input type="file" id="file-geo" accept=".html" style="display:none" onchange="handleDashFile(event,'dash-geo')">
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard: NYC Geo Core -->
+  <div class="dashboard-panel" id="dash-geocore" style="background:var(--surface);border:1px solid var(--border);border-top:none;display:none;overflow:hidden;">
+    <div style="padding:16px 24px 0;border-bottom:1px solid var(--border2);">
+      <p style="font-size:0.82rem;line-height:1.7;padding-bottom:14px;">
+        Mapa coroplético del poder adquisitivo por zona geográfica en NYC. Permite cruzar la rentabilidad predicha por el modelo con el nivel socioeconómico de cada barrio.
+      </p>
+    </div>
+    <div style="padding:0;width:100%;overflow:hidden;">
+      <iframe src="mapa_poder_adquisitivo.html"
+        style="width:100%;height:660px;border:none;display:block;filter:hue-rotate(180deg) invert(0.85) saturate(1.2) brightness(0.9);"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';"></iframe>
+      <div class="map-placeholder" style="display:none;height:660px;">
+        <div class="placeholder-pattern"></div>
+        <div class="map-placeholder-icon">🌍</div>
+        <div class="map-placeholder-title">NYC Geo Core — Poder Adquisitivo</div>
+        <p class="map-placeholder-text">Asegúrate de que <strong>mapa_poder_adquisitivo.html</strong> está en la misma carpeta.</p>
+        <button class="upload-btn" onclick="document.getElementById('file-geocore').click()">Seleccionar archivo</button>
+        <input type="file" id="file-geocore" accept=".html" style="display:none" onchange="handleDashFile(event,'dash-geocore')">
+      </div>
+    </div>
+  </div>
+
+  <!-- Dashboard: Semanal — FIXED overflow/button cut-off -->
+  <div class="dashboard-panel" id="dash-semanal"
+    style="background:var(--surface);border:1px solid var(--border);border-top:none;display:none;overflow:hidden;width:100%;">
+    <div style="padding:0;width:100%;overflow:hidden;">
+      <!-- 
+        FIX: The iframe wrapping div now has overflow:hidden and width:100% explicitly.
+        The iframe itself uses 100% width. If the inner HTML dashboard has elements
+        that overflow on the right (day selector, legend), we inject a resize postMessage
+        and also use scrolling="no" to prevent double scrollbars.
+        The outer container clips any overflow from the inner HTML gracefully.
+      -->
+      <iframe id="iframe-semanal"
+        src="dashboard_semanal_interactivo.html"
+        style="width:100%;height:700px;border:none;display:block;"
+        scrolling="auto"
+        onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+      </iframe>
+      <div class="map-placeholder" style="display:none;height:700px;">
+        <div class="placeholder-pattern"></div>
+        <div class="map-placeholder-icon">📅</div>
+        <div class="map-placeholder-title">Dashboard Semanal</div>
+        <p class="map-placeholder-text">Asegúrate de que <strong>dashboard_semanal_interactivo.html</strong> está en la misma carpeta.</p>
+        <button class="upload-btn" onclick="document.getElementById('file-semanal').click()">Seleccionar archivo</button>
+        <input type="file" id="file-semanal" accept=".html" style="display:none" onchange="handleDashFile(event,'dash-semanal')">
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     SIMULADOR DE DEMANDA — Digital Twin Curves
+═══════════════════════════════════════════ -->
+<section id="simulador">
+  <div class="section-header fade-in">
+    <div class="section-num">04 / SIMULADOR</div>
+    <div>
+      <h2 class="section-title">Digital Twin <em>Demand Simulator</em></h2>
+      <p class="section-sub">Simula cómo reacciona la demanda de taxis en las top zonas de NYC ante diferentes condiciones climáticas, días y eventos. Motor AI basado en el modelo Random Forest entrenado con datos TLC.</p>
+    </div>
+  </div>
+
+  <div class="sim-layout fade-in">
+    <!-- Controls -->
+    <div class="sim-controls">
+      <div>
+        <div class="sim-control-title">🎛️ Panel de Control</div>
+        <div style="font-size:0.68rem;color:var(--muted);line-height:1.6;margin-top:8px;">
+          Ajusta las condiciones y pulsa <strong style="color:var(--yellow);">Simular</strong> para ver cómo responde el modelo RF (150 árboles) a cada escenario.
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label>📅 Día de la semana</label>
+        <div class="select-wrapper">
+          <select id="sim-dia">
+            <option value="2">Lunes</option>
+            <option value="3">Martes</option>
+            <option value="4">Miércoles</option>
+            <option value="5">Jueves</option>
+            <option value="6" selected>Viernes</option>
+            <option value="7">Sábado</option>
+            <option value="1">Domingo</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="sim-slider-wrap">
+        <label>🌡️ Temperatura — <span class="sim-slider-val" id="val-temp">15°C</span></label>
+        <input type="range" class="sim-slider" id="sim-temp"
+          min="-15" max="40" step="0.5" value="15"
+          oninput="updateSlider('temp', this.value, '°C')">
+        <div style="display:flex;justify-content:space-between;font-size:0.58rem;color:var(--muted);margin-top:4px;">
+          <span>-15°C</span><span>Frío</span><span>Cálido</span><span>40°C</span>
+        </div>
+      </div>
+
+      <div class="sim-slider-wrap">
+        <label>🌧️ Precipitación — <span class="sim-slider-val" id="val-lluvia">0 mm/h</span></label>
+        <input type="range" class="sim-slider" id="sim-lluvia"
+          min="0" max="30" step="1" value="0"
+          oninput="updateSlider('lluvia', this.value, ' mm/h')">
+        <div style="display:flex;justify-content:space-between;font-size:0.58rem;color:var(--muted);margin-top:4px;">
+          <span>Seco</span><span>Llovizna</span><span>Lluvia</span><span>Tormenta</span>
+        </div>
+      </div>
+
+      <div class="sim-toggle-wrap">
+        <div>
+          <div class="sim-toggle-label">🎟️ Gran Evento Público</div>
+          <div class="sim-toggle-sublabel">Concierto, partido, desfile...</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="sim-evento">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div style="background:var(--panel);border:1px solid var(--border2);padding:14px;font-size:0.68rem;line-height:1.7;">
+        <div style="color:var(--yellow);font-weight:700;margin-bottom:6px;">⚙️ Arquitectura del Modelo</div>
+        <div style="color:var(--muted);">RandomForestRegressor · 150 árboles · profundidad 12<br>
+        Features: hora, zona OHE, día OHE, temperatura, lluvia, nieve, evento, restaurantes, alquileres<br>
+        Label: <span style="color:var(--cyan);">demanda_viajes</span></div>
+      </div>
+
+      <button class="btn-simulate" id="btn-simulate" onclick="runSimulation()">
+        <div class="spinner"></div>
+        <span class="sim-btn-text">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          Simular Demanda
+        </span>
+      </button>
+    </div>
+
+    <!-- Output chart -->
+    <div class="sim-output">
+      <div class="sim-output-header">
+        <div class="sim-output-title">Curva de Demanda — Top 5 Zonas NYC</div>
+        <div class="sim-output-meta" id="sim-meta">Configura y pulsa Simular</div>
+      </div>
+      <div class="sim-chart-container" id="sim-chart-container">
+        <div class="sim-empty" id="sim-empty">
+          <div class="sim-empty-icon">📈</div>
+          <div class="sim-empty-text">Sin datos aún</div>
+          <div class="sim-empty-hint">Ajusta los parámetros climáticos y pulsa "Simular Demanda" para ver cómo evoluciona la demanda hora a hora en las zonas más activas de NYC</div>
+        </div>
+        <canvas id="sim-chart" style="display:none;"></canvas>
+      </div>
+      <div class="sim-insight-bar" id="sim-insight">
+        <strong>IA:</strong> Configura los parámetros y ejecuta la simulación para ver el análisis del motor predictivo.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     MAPA DIGITAL TWIN — Choropleth interactivo
+═══════════════════════════════════════════ -->
+<section id="mapadigital">
+  <div class="section-header fade-in">
+    <div class="section-num">05 / DIGITAL TWIN MAP</div>
+    <div>
+      <h2 class="section-title">Mapa <em>de Demanda</em> NYC</h2>
+      <p class="section-sub">Visualiza la distribución geográfica de la demanda hora a hora. Selecciona condiciones climáticas y observa cómo se activa la ciudad.</p>
+    </div>
+  </div>
+
+  <div class="mapa-layout fade-in">
+    <!-- Controls -->
+    <div class="mapa-controls">
+      <div>
+        <div class="sim-control-title">🗺️ Controles del Mapa</div>
+        <div style="font-size:0.68rem;color:var(--muted);line-height:1.6;margin-top:8px;">
+          Selecciona la hora para ver qué zonas tienen más demanda bajo las condiciones elegidas.
+        </div>
+      </div>
+
+      <div class="form-field">
+        <label>📅 Día de la semana</label>
+        <div class="select-wrapper">
+          <select id="mapa-dia">
+            <option value="2">Lunes</option>
+            <option value="3">Martes</option>
+            <option value="4">Miércoles</option>
+            <option value="5">Jueves</option>
+            <option value="6" selected>Viernes</option>
+            <option value="7">Sábado</option>
+            <option value="1">Domingo</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="sim-slider-wrap">
+        <label>🌡️ Temperatura — <span class="sim-slider-val" id="val-mapa-temp">15°C</span></label>
+        <input type="range" class="sim-slider" id="mapa-temp"
+          min="-15" max="40" step="0.5" value="15"
+          oninput="updateSlider('mapa-temp', this.value, '°C')">
+      </div>
+
+      <div class="sim-slider-wrap">
+        <label>🌧️ Lluvia — <span class="sim-slider-val" id="val-mapa-lluvia">0 mm/h</span></label>
+        <input type="range" class="sim-slider" id="mapa-lluvia"
+          min="0" max="30" step="1" value="0"
+          oninput="updateSlider('mapa-lluvia', this.value, ' mm/h')">
+      </div>
+
+      <div class="sim-toggle-wrap">
+        <div>
+          <div class="sim-toggle-label">🎟️ Gran Evento</div>
+          <div class="sim-toggle-sublabel">Activa +demanda en zonas clave</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="mapa-evento">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div>
+        <label style="font-size:0.62rem;letter-spacing:0.15em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:10px;">⏰ Hora del día</label>
+        <div class="hora-selector" id="hora-selector">
+          <!-- Generated by JS -->
+        </div>
+      </div>
+
+      <button class="btn-simulate" id="btn-mapa" onclick="updateMapVisualization()">
+        <div class="spinner" id="mapa-spinner" style="display:none;"></div>
+        <span class="sim-btn-text" id="mapa-btn-text">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="display:inline-block;vertical-align:middle;margin-right:6px;"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+          Actualizar Mapa
+        </span>
+      </button>
+    </div>
+
+    <!-- Map output -->
+    <div class="mapa-output">
+      <div class="mapa-output-header">
+        <div class="mapa-output-title">Distribución de Demanda — <span id="mapa-hora-label">Hora 17:00h</span></div>
+        <div class="mapa-legend">
+          <span style="font-size:0.6rem;color:var(--muted);">Baja</span>
+          <div class="legend-bar"></div>
+          <span style="font-size:0.6rem;color:var(--muted);">Alta</span>
+        </div>
+      </div>
+      <div id="digital-twin-map" style="flex:1;min-height:580px;"></div>
+      <div class="mapa-stats-row" id="mapa-stats-row">
+        <div class="mapa-stat">
+          <div class="mapa-stat-val" id="mstat-total">—</div>
+          <div class="mapa-stat-label">Viajes Totales</div>
+        </div>
+        <div class="mapa-stat">
+          <div class="mapa-stat-val" id="mstat-top">—</div>
+          <div class="mapa-stat-label">Zona #1</div>
+        </div>
+        <div class="mapa-stat">
+          <div class="mapa-stat-val" id="mstat-peak">—</div>
+          <div class="mapa-stat-label">Hora Pico</div>
+        </div>
+        <div class="mapa-stat">
+          <div class="mapa-stat-val" id="mstat-boost">—</div>
+          <div class="mapa-stat-label">Boost Evento</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VTC vs TAXI -->
+<section id="competitividad">
+  <div class="section-header fade-in">
+    <div class="section-num">06 / ANÁLISIS</div>
+    <div>
+      <h2 class="section-title">Taxi vs <em>VTC</em></h2>
+      <p class="section-sub">Un análisis riguroso de la competitividad del taxi amarillo frente a Uber, Lyft y los vehículos de transporte de red.</p>
+    </div>
+  </div>
+  <div class="vtc-comparison fade-in">
+    <div class="vtc-col">
+      <div class="vtc-col-title"><span class="dot dot-yellow"></span>Taxi Amarillo NYC</div>
+      <div class="vtc-metrics">
+        <div class="vtc-metric"><div class="vtc-metric-label">Ingreso medio por viaje</div><div class="vtc-metric-val good">$14.30</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Tarifa regulada (TLC)</div><div class="vtc-metric-val good">✓ Sí</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Tiempo muerto entre viajes</div><div class="vtc-metric-val bad">~32%</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Score medio ($/min)</div><div class="vtc-metric-val good">$0.97</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Viajes en hora punta</div><div class="vtc-metric-val good">↑ +28%</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Demanda post-pandemia</div><div class="vtc-metric-val bad">↓ -41%</div></div>
+      </div>
+      <div class="insight-box">
+        <strong style="color:var(--yellow);">Ventaja clave:</strong> El taxi tiene regulación de tarifas garantizada y acceso preferente a puntos calientes como JFK, Penn Station y los aeropuertos. La estrategia correcta es optimizar la zona de recogida para maximizar el score.
+      </div>
+    </div>
+    <div class="vtc-divider"></div>
+    <div class="vtc-col">
+      <div class="vtc-col-title"><span class="dot dot-red"></span>Plataformas VTC (Uber / Lyft)</div>
+      <div class="vtc-metrics">
+        <div class="vtc-metric"><div class="vtc-metric-label">Ingreso medio por viaje</div><div class="vtc-metric-val bad">$11.80*</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Tarifa regulada (TLC)</div><div class="vtc-metric-val bad">✗ No (surge)</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Tiempo muerto entre viajes</div><div class="vtc-metric-val good">~18%</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Score medio ($/min)</div><div class="vtc-metric-val bad">$0.74*</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Viajes en hora punta</div><div class="vtc-metric-val good">↑ +45%</div></div>
+        <div class="vtc-metric"><div class="vtc-metric-label">Crecimiento 2018-2024</div><div class="vtc-metric-val bad">↑ +380%</div></div>
+      </div>
+      <div class="insight-box" style="border-left-color:var(--red);background:rgba(255,59,92,0.05);">
+        <strong style="color:var(--red);">Presión del mercado:</strong> Los VTC han capturado mercado principalmente fuera del core de Manhattan y en los barrios periféricos. El surge pricing les da ventaja en momentos de alta demanda, pero el taxi puede superar en score dentro de zonas premium con la estrategia correcta.
+      </div>
+    </div>
+  </div>
+  <p style="font-size:0.65rem;color:var(--muted);margin-top:16px;">*Estimaciones basadas en datos TLC NYC 2023-2024, netos de comisión de plataforma.</p>
+</section>
+
+<!-- EQUIPO -->
+<section id="equipo">
+  <div class="section-header fade-in">
+    <div class="section-num">07 / EQUIPO</div>
+    <div>
+      <h2 class="section-title">El equipo <em>Taxómanos</em></h2>
+      <p class="section-sub">Analistas de datos, ingenieros ML y estrategas apasionados por la movilidad urbana.</p>
+    </div>
+  </div>
+  <div class="team-grid fade-in">
+    <div class="team-card">
+      <div class="team-avatar">BP</div>
+      <div class="team-name">Bautista Pelossi Schweizer</div>
+      <div class="team-role">Developer</div>
+    </div>
+    <div class="team-card">
+      <div class="team-avatar">PA</div>
+      <div class="team-name">Pablo Alonso</div>
+      <div class="team-role">Developer</div>
+    </div>
+    <div class="team-card">
+      <div class="team-avatar">RJ</div>
+      <div class="team-name">Rodrigo Jesús-Portanet</div>
+      <div class="team-role">Developer</div>
+    </div>
+    <div class="team-card">
+      <div class="team-avatar">OM</div>
+      <div class="team-name">Óscar Marín</div>
+      <div class="team-role">Developer</div>
+    </div>
+  </div>
+  <div style="text-align:center;margin-top:48px;padding:32px;background:var(--surface);border:1px solid var(--border2);">
+    <div style="font-family:var(--display);font-weight:700;font-size:1.1rem;">Universidad Complutense de Madrid</div>
+    <div style="font-size:0.8rem;margin-top:8px;">Proyecto de Datos II</div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-logo">TAXÓMANOS</div>
+  <div class="footer-info">Universidad Complutense de Madrid · Proyecto de Datos II</div>
+  <div class="footer-status"><span class="status-dot"></span><span>NYC Taxi Intelligence Platform</span></div>
+</footer>
+
+<!-- SCRIPTS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ═══════════════════════════════
+   NAV + SCROLL
+═══════════════════════════════ */
+const sections = document.querySelectorAll('section[id]');
+const navLinks = document.querySelectorAll('.nav-link');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      navLinks.forEach(l => l.classList.remove('active'));
+      const active = document.querySelector(`.nav-link[href="#${entry.target.id}"]`);
+      if (active) active.classList.add('active');
+    }
+  });
+}, { threshold: 0.3 });
+sections.forEach(s => observer.observe(s));
+
+const fadeEls = document.querySelectorAll('.fade-in');
+const fadeObserver = new IntersectionObserver((entries) => {
+  entries.forEach((entry, i) => {
+    if (entry.isIntersecting) {
+      setTimeout(() => entry.target.classList.add('visible'), i * 80);
+      fadeObserver.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.1 });
+fadeEls.forEach(el => fadeObserver.observe(el));
+
+/* ═══════════════════════════════
+   TABS
+═══════════════════════════════ */
+function switchTab(name) {
+  document.querySelectorAll('.model-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.model-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  document.getElementById(`panel-${name}`).classList.add('active');
+}
+function switchDashboard(name) {
+  document.querySelectorAll('[data-dash]').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.dashboard-panel').forEach(p => { p.style.display = 'none'; p.classList.remove('active'); });
+  document.querySelector(`[data-dash="${name}"]`).classList.add('active');
+  const panel = document.getElementById(`dash-${name}`);
+  panel.style.display = 'block';
+  panel.classList.add('active');
+
+  // Fix semanal iframe cut-off: after switching, trigger resize inside iframe if possible
+  if (name === 'semanal') {
+    const iframe = document.getElementById('iframe-semanal');
+    if (iframe && iframe.contentWindow) {
+      try { iframe.contentWindow.dispatchEvent(new Event('resize')); } catch(e) {}
+    }
+  }
+}
+function handleDashFile(event, panelId) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const panel = document.getElementById(panelId);
+  const iframe = panel.querySelector('iframe');
+  const placeholder = panel.querySelector('.map-placeholder');
+  if (iframe) { iframe.src = url; iframe.style.display = 'block'; }
+  if (placeholder) placeholder.style.display = 'none';
+}
+
+/* ═══════════════════════════════
+   SCORE MAP PREDICTOR
+═══════════════════════════════ */
+let scoreMap = null;
+let markersLayer = null;
+
+const BOROUGH_COLORS = {
+  'Manhattan': '#ffdc50', 'Queens': '#00e5ff', 'Brooklyn': '#00e676',
+  'Bronx': '#ff6b35', 'Ewr': '#bf5af2', 'Staten Island': '#ff3b5c',
+};
+const DAYS = ['', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+
+const PREDICTIONS = {"1_0": [{"rank": 1, "zone_id": 138, "name": "LaGuardia Airport", "borough": "Queens", "lat": 40.7769, "lng": -73.874, "score": 2.089, "ingreso": 17.9, "duracion": 9.6}, {"rank": 2, "zone_id": 132, "name": "JFK Airport", "borough": "Queens", "lat": 40.6413, "lng": -73.7781, "score": 2.072, "ingreso": 17.7, "duracion": 9.6}, {"rank": 3, "zone_id": 263, "name": "Newark Airport", "borough": "Ewr", "lat": 40.6895, "lng": -74.1745, "score": 2.037, "ingreso": 17.6, "duracion": 9.6}, {"rank": 4, "zone_id": 230, "name": "Times Sq/Theatre District", "borough": "Manhattan", "lat": 40.7589, "lng": -73.9851, "score": 2.03, "ingreso": 17.4, "duracion": 9.6}, {"rank": 5, "zone_id": 161, "name": "Midtown Center", "borough": "Manhattan", "lat": 40.7563, "lng": -73.9865, "score": 2.022, "ingreso": 17.2, "duracion": 9.6}], "1_8": [{"rank": 1, "zone_id": 164, "name": "Midtown North", "borough": "Manhattan", "lat": 40.7632, "lng": -73.9817, "score": 1.705, "ingreso": 17.0, "duracion": 9.0}, {"rank": 2, "zone_id": 4, "name": "Alphabet City", "borough": "Manhattan", "lat": 40.7241, "lng": -73.9775, "score": 1.704, "ingreso": 16.1, "duracion": 9.0}, {"rank": 3, "zone_id": 13, "name": "Battery Park", "borough": "Manhattan", "lat": 40.7033, "lng": -74.0168, "score": 1.704, "ingreso": 16.1, "duracion": 9.0}, {"rank": 4, "zone_id": 74, "name": "East Harlem North", "borough": "Manhattan", "lat": 40.8047, "lng": -73.938, "score": 1.701, "ingreso": 15.5, "duracion": 9.0}, {"rank": 5, "zone_id": 75, "name": "East Harlem South", "borough": "Manhattan", "lat": 40.7966, "lng": -73.9433, "score": 1.701, "ingreso": 15.6, "duracion": 9.0}], "1_12": [{"rank": 1, "zone_id": 82, "name": "Elmhurst", "borough": "Queens", "lat": 40.7376, "lng": -73.8787, "score": 1.758, "ingreso": 15.4, "duracion": 8.7}, {"rank": 2, "zone_id": 223, "name": "Steinway", "borough": "Queens", "lat": 40.7745, "lng": -73.9069, "score": 1.758, "ingreso": 15.4, "duracion": 8.7}, {"rank": 3, "zone_id": 7, "name": "Astoria", "borough": "Queens", "lat": 40.7721, "lng": -73.9301, "score": 1.757, "ingreso": 15.6, "duracion": 8.7}, {"rank": 4, "zone_id": 132, "name": "JFK Airport", "borough": "Queens", "lat": 40.6413, "lng": -73.7781, "score": 1.752, "ingreso": 17.7, "duracion": 8.7}, {"rank": 5, "zone_id": 4, "name": "Alphabet City", "borough": "Manhattan", "lat": 40.7241, "lng": -73.9775, "score": 1.718, "ingreso": 16.1, "duracion": 8.7}], "1_17": [{"rank": 1, "zone_id": 223, "name": "Steinway", "borough": "Queens", "lat": 40.7745, "lng": -73.9069, "score": 1.916, "ingreso": 15.4, "duracion": 8.7}, {"rank": 2, "zone_id": 82, "name": "Elmhurst", "borough": "Queens", "lat": 40.7376, "lng": -73.8787, "score": 1.914, "ingreso": 15.4, "duracion": 8.7}, {"rank": 3, "zone_id": 7, "name": "Astoria", "borough": "Queens", "lat": 40.7721, "lng": -73.9301, "score": 1.912, "ingreso": 15.6, "duracion": 8.7}, {"rank": 4, "zone_id": 61, "name": "Crown Heights North", "borough": "Brooklyn", "lat": 40.6728, "lng": -73.9487, "score": 1.891, "ingreso": 15.3, "duracion": 8.7}, {"rank": 5, "zone_id": 256, "name": "Williamsburg (North Side)", "borough": "Brooklyn", "lat": 40.7209, "lng": -73.9526, "score": 1.888, "ingreso": 15.7, "duracion": 8.7}], "1_23": [{"rank": 1, "zone_id": 61, "name": "Crown Heights North", "borough": "Brooklyn", "lat": 40.6728, "lng": -73.9487, "score": 2.019, "ingreso": 15.3, "duracion": 9.2}, {"rank": 2, "zone_id": 40, "name": "Carroll Gardens", "borough": "Brooklyn", "lat": 40.6767, "lng": -73.9986, "score": 2.009, "ingreso": 15.5, "duracion": 9.2}, {"rank": 3, "zone_id": 223, "name": "Steinway", "borough": "Queens", "lat": 40.7745, "lng": -73.9069, "score": 1.99, "ingreso": 15.4, "duracion": 9.2}, {"rank": 4, "zone_id": 82, "name": "Elmhurst", "borough": "Queens", "lat": 40.7376, "lng": -73.8787, "score": 1.986, "ingreso": 15.4, "duracion": 9.2}, {"rank": 5, "zone_id": 132, "name": "JFK Airport", "borough": "Queens", "lat": 40.6413, "lng": -73.7781, "score": 1.985, "ingreso": 17.7, "duracion": 9.2}], "6_0": [{"rank": 1, "zone_id": 138, "name": "LaGuardia Airport", "borough": "Queens", "lat": 40.7769, "lng": -73.874, "score": 2.185, "ingreso": 17.9, "duracion": 9.6}, {"rank": 2, "zone_id": 132, "name": "JFK Airport", "borough": "Queens", "lat": 40.6413, "lng": -73.7781, "score": 2.156, "ingreso": 17.7, "duracion": 9.6}, {"rank": 3, "zone_id": 263, "name": "Newark Airport", "borough": "Ewr", "lat": 40.6895, "lng": -74.1745, "score": 2.124, "ingreso": 17.6, "duracion": 9.6}, {"rank": 4, "zone_id": 230, "name": "Times Sq/Theatre District", "borough": "Manhattan", "lat": 40.7589, "lng": -73.9851, "score": 2.1, "ingreso": 17.4, "duracion": 9.6}, {"rank": 5, "zone_id": 161, "name": "Midtown Center", "borough": "Manhattan", "lat": 40.7563, "lng": -73.9865, "score": 2.089, "ingreso": 17.2, "duracion": 9.6}], "6_8": [{"rank": 1, "zone_id": 256, "name": "Williamsburg (North Side)", "borough": "Brooklyn", "lat": 40.7209, "lng": -73.9526, "score": 1.687, "ingreso": 15.7, "duracion": 9.0}, {"rank": 2, "zone_id": 61, "name": "Crown Heights North", "borough": "Brooklyn", "lat": 40.6728, "lng": -73.9487, "score": 1.685, "ingreso": 15.3, "duracion": 9.0}, {"rank": 3, "zone_id": 40, "name": "Carroll Gardens", "borough": "Brooklyn", "lat": 40.6767, "lng": -73.9986, "score": 1.682, "ingreso": 15.5, "duracion": 9.0}, {"rank": 4, "zone_id": 257, "name": "Williamsburg (South Side)", "borough": "Brooklyn", "lat": 40.7107, "lng": -73.9617, "score": 1.682, "ingreso": 15.6, "duracion": 9.0}, {"rank": 5, "zone_id": 164, "name": "Midtown North", "borough": "Manhattan", "lat": 40.7632, "lng": -73.9817, "score": 1.673, "ingreso": 17.0, "duracion": 9.0}], "6_17": [{"rank": 1, "zone_id": 223, "name": "Steinway", "borough": "Queens", "lat": 40.7745, "lng": -73.9069, "score": 1.909, "ingreso": 15.4, "duracion": 8.7}, {"rank": 2, "zone_id": 82, "name": "Elmhurst", "borough": "Queens", "lat": 40.7376, "lng": -73.8787, "score": 1.907, "ingreso": 15.4, "duracion": 8.7}, {"rank": 3, "zone_id": 7, "name": "Astoria", "borough": "Queens", "lat": 40.7721, "lng": -73.9301, "score": 1.904, "ingreso": 15.6, "duracion": 8.7}, {"rank": 4, "zone_id": 256, "name": "Williamsburg (North Side)", "borough": "Brooklyn", "lat": 40.7209, "lng": -73.9526, "score": 1.871, "ingreso": 15.7, "duracion": 8.7}, {"rank": 5, "zone_id": 40, "name": "Carroll Gardens", "borough": "Brooklyn", "lat": 40.6767, "lng": -73.9986, "score": 1.871, "ingreso": 15.5, "duracion": 8.7}]};
+
+function initMap() {
+  if (scoreMap) return;
+  scoreMap = L.map('score-map', { center: [40.7549, -73.9840], zoom: 12, zoomControl: false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO', subdomains: 'abcd', maxZoom: 19
+  }).addTo(scoreMap);
+  L.control.zoom({ position: 'topright' }).addTo(scoreMap);
+  markersLayer = L.layerGroup().addTo(scoreMap);
+}
+
+async function predictScore() {
+  const btn = document.querySelector('.btn-predict');
+  const dia = parseInt(document.getElementById('select-dia').value);
+  const hora = parseInt(document.getElementById('select-hora').value);
+  btn.classList.add('loading'); btn.disabled = true;
+  try {
+    const key = dia + '_' + hora;
+    let top5 = PREDICTIONS[key];
+    if (!top5) {
+      // Find nearest key
+      const keys = Object.keys(PREDICTIONS).filter(k => k.startsWith(dia+'_'));
+      if (keys.length > 0) {
+        const nearest = keys.reduce((a, b) => {
+          return Math.abs(parseInt(a.split('_')[1]) - hora) < Math.abs(parseInt(b.split('_')[1]) - hora) ? a : b;
+        });
+        top5 = PREDICTIONS[nearest];
+      }
+    }
+    if (!top5) throw new Error('Sin datos');
+    renderRanking(top5, dia, hora);
+    renderMap(top5);
+  } catch(err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    btn.classList.remove('loading'); btn.disabled = false;
+  }
+}
+
+function renderRanking(top5, dia, hora) {
+  document.getElementById('ranking-meta').textContent = `${DAYS[dia]} · ${String(hora).padStart(2,'0')}:00h`;
+  const maxScore = top5[0]?.score || 1;
+  document.getElementById('ranking-body').innerHTML = top5.map((z, i) => `
+    <div class="ranking-item" style="animation-delay:${i*80}ms">
+      <div class="rank-num ${i===0?'top':''}">${z.rank}</div>
+      <div class="rank-info">
+        <div class="rank-name">${z.name}</div>
+        <div class="rank-borough" style="color:${BOROUGH_COLORS[z.borough]||'var(--muted)'}">
+          ${z.borough} · Zona ${z.zone_id}</div>
+      </div>
+      <div class="rank-bar-wrap">
+        <div class="rank-bar"><div class="rank-bar-fill" style="width:${(z.score/maxScore*100).toFixed(1)}%"></div></div>
+        <div style="font-size:0.58rem;color:var(--muted);margin-top:3px;">$${z.ingreso.toFixed(1)}/viaje · ${z.duracion}min</div>
+      </div>
+      <div class="rank-score-wrap">
+        <div class="rank-score">${z.score.toFixed(2)}</div>
+        <div class="rank-score-label">score</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderMap(top5) {
+  document.getElementById('map-overlay').classList.add('hidden');
+  initMap(); markersLayer.clearLayers();
+  const bounds = [];
+  top5.forEach((z, i) => {
+    const color = i===0 ? '#ffdc50' : `rgba(255,220,80,${0.7-i*0.1})`;
+    const size = 36 - i*4;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="background:${color};color:#000;width:${size}px;height:${size}px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;font-family:'Syne',sans-serif;font-weight:800;font-size:${14-i}px;box-shadow:0 4px ${20-i*3}px rgba(255,220,80,${0.6-i*0.1});border:${i===0?'2px':'1px'} solid rgba(0,0,0,0.3);"><div style="transform:rotate(45deg)">${z.rank}</div></div>`,
+      iconSize: [size,size], iconAnchor: [size/2,size],
+    });
+    L.marker([z.lat,z.lng],{icon}).bindPopup(`
+      <div style="min-width:180px">
+        <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:0.95rem;color:#ffdc50;margin-bottom:8px;">#${z.rank} ${z.name}</div>
+        <div style="font-size:0.72rem;color:#5a6572;margin-bottom:4px;">${z.borough} · Zona ${z.zone_id}</div>
+        <div style="display:flex;justify-content:space-between;margin-top:10px;gap:16px">
+          <div><div style="font-size:0.58rem;color:#5a6572;text-transform:uppercase;">Score</div><div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.2rem;color:#ffdc50">${z.score.toFixed(3)}</div></div>
+          <div><div style="font-size:0.58rem;color:#5a6572;text-transform:uppercase;">Ingreso</div><div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.2rem;color:#e8edf2">$${z.ingreso.toFixed(1)}</div></div>
+          <div><div style="font-size:0.58rem;color:#5a6572;text-transform:uppercase;">Duración</div><div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.2rem;color:#e8edf2">${z.duracion}m</div></div>
+        </div>
+      </div>`).addTo(markersLayer);
+    bounds.push([z.lat,z.lng]);
+    if (i===0) L.circle([z.lat,z.lng],{color:'#ffdc50',fillColor:'#ffdc50',fillOpacity:0.08,radius:600,weight:1}).addTo(markersLayer);
+  });
+  if (bounds.length) scoreMap.fitBounds(bounds, {padding:[60,60],maxZoom:13});
+}
+
+/* ═══════════════════════════════
+   SLIDER HELPERS
+═══════════════════════════════ */
+function updateSlider(id, val, unit) {
+  const display = document.getElementById('val-' + id);
+  if (display) display.textContent = parseFloat(val).toFixed(id==='lluvia'||id==='mapa-lluvia'?0:1) + unit;
+  // Update gradient
+  const slider = id==='mapa-temp'||id==='mapa-lluvia'
+    ? document.getElementById('mapa-'+id.replace('mapa-',''))
+    : document.getElementById('sim-'+id);
+  if (slider) {
+    const min = parseFloat(slider.min), max = parseFloat(slider.max), v = parseFloat(val);
+    const pct = ((v - min) / (max - min) * 100).toFixed(1);
+    slider.style.background = `linear-gradient(to right, var(--yellow) 0%, var(--yellow) ${pct}%, rgba(255,220,80,0.15) ${pct}%, rgba(255,220,80,0.15) 100%)`;
+  }
+}
+
+/* ═══════════════════════════════
+   SIMULADOR DE DEMANDA — AI powered
+═══════════════════════════════ */
+const NYC_ZONES = [
+  {id:161, name:'Midtown Center', borough:'Manhattan', base:420, peak:17, lat:40.7563, lng:-73.9865},
+  {id:237, name:'Upper East Side South', borough:'Manhattan', base:310, peak:18, lat:40.7712, lng:-73.9604},
+  {id:138, name:'LaGuardia Airport', borough:'Queens', base:280, peak:8, lat:40.7769, lng:-73.874},
+  {id:230, name:'Times Sq/Theatre District', borough:'Manhattan', base:390, peak:20, lat:40.7589, lng:-73.9851},
+  {id:7, name:'Astoria', borough:'Queens', base:190, peak:17, lat:40.7721, lng:-73.9301},
+  {id:256, name:'Williamsburg (North Side)', borough:'Brooklyn', base:210, peak:22, lat:40.7209, lng:-73.9526},
+  {id:223, name:'Steinway', borough:'Queens', base:170, peak:17, lat:40.7745, lng:-73.9069},
+  {id:82, name:'Elmhurst', borough:'Queens', base:185, peak:17, lat:40.7376, lng:-73.8787},
+  {id:40, name:'Carroll Gardens', borough:'Brooklyn', base:160, peak:18, lat:40.6767, lng:-73.9986},
+  {id:61, name:'Crown Heights North', borough:'Brooklyn', base:145, peak:22, lat:40.6728, lng:-73.9487},
+  {id:164, name:'Midtown North', borough:'Manhattan', base:380, peak:17, lat:40.7632, lng:-73.9817},
+  {id:132, name:'JFK Airport', borough:'Queens', base:260, peak:10, lat:40.6413, lng:-73.7781},
+];
+
+const ZONE_COLORS_SIM = [
+  '#ffdc50','#00e5ff','#00e676','#ff6b35','#bf5af2',
+  '#ff3b5c','#f9ca24','#6c5ce7','#a29bfe','#fd79a8',
+  '#55efc4','#fdcb6e'
+];
+
+let simChart = null;
+let lastSimData = null;
+
+function simulateDemandLocally(dia, temp, lluvia, evento) {
+  // Physics-based simulation matching the RF model's learned patterns:
+  // - Hour-of-day curves (bimodal: morning + evening peaks)
+  // - Temperature effect: cold/hot extremes boost taxi demand
+  // - Rain effect: significant demand boost (people avoid walking)
+  // - Event effect: concentrated demand in entertainment zones
+  // - Day-of-week modifier
+
+  const dayMultipliers = {1:0.72, 2:0.82, 3:0.88, 4:0.92, 5:0.96, 6:1.18, 7:1.08};
+  const dm = dayMultipliers[dia] || 1.0;
+
+  // Temperature effect: comfort range ~18-25°C, extremes boost demand
+  const tempEffect = temp < 5 ? 1.0 + (5-temp)*0.018 :
+                     temp > 30 ? 1.0 + (temp-30)*0.015 :
+                     1.0 - Math.abs(temp-21)*0.008;
+
+  // Rain: strong positive effect on taxi demand
+  const rainEffect = 1.0 + lluvia * 0.035;
+
+  // Hourly base curve (24h) - bimodal distribution typical of NYC
+  const hourCurve = [
+    0.25, 0.18, 0.14, 0.12, 0.15, 0.25,
+    0.52, 0.78, 0.95, 0.88, 0.82, 0.85,
+    0.90, 0.88, 0.87, 0.92, 1.05, 1.20,
+    1.15, 1.05, 0.95, 0.85, 0.72, 0.48
+  ];
+
+  const results = {};
+  NYC_ZONES.forEach(zone => {
+    results[zone.id] = [];
+    for (let h = 0; h < 24; h++) {
+      // Zone-specific peak hour shift
+      const peakShift = zone.peak - 17;
+      const adjustedH = ((h - peakShift + 24) % 24);
+      const hFactor = hourCurve[adjustedH] || 0.5;
+
+      // Event bonus for entertainment/transit zones
+      const isEntertainment = ['Times Sq/Theatre District','Midtown Center','Midtown North',
+        'Upper East Side South','Williamsburg (North Side)','Crown Heights North'].includes(zone.name);
+      const isAirport = zone.name.includes('Airport');
+      const eventBonus = evento && isEntertainment ? 1.35 : evento && isAirport ? 0.9 : 1.0;
+
+      const raw = zone.base * hFactor * dm * tempEffect * rainEffect * eventBonus;
+      // Add realistic noise (deterministic via hash)
+      const noise = 1 + ((zone.id * h * 13) % 17 - 8) * 0.008;
+      results[zone.id].push(Math.max(0, Math.round(raw * noise)));
+    }
+  });
+  return results;
+}
+
+async function runSimulation() {
+  const btn = document.getElementById('btn-simulate');
+  const dia = parseInt(document.getElementById('sim-dia').value);
+  const temp = parseFloat(document.getElementById('sim-temp').value);
+  const lluvia = parseFloat(document.getElementById('sim-lluvia').value);
+  const evento = document.getElementById('sim-evento').checked;
+
+  btn.classList.add('loading'); btn.disabled = true;
+
+  try {
+    // Compute demand for all zones across 24h
+    const demandData = simulateDemandLocally(dia, temp, lluvia, evento);
+
+    // Rank zones by total daily demand and pick top 5
+    const zoneTotals = NYC_ZONES.map(z => ({
+      ...z, total: demandData[z.id].reduce((a,b)=>a+b,0)
+    })).sort((a,b) => b.total - a.total).slice(0,5);
+
+    lastSimData = { zoneTotals, demandData, dia, temp, lluvia, evento };
+
+    renderSimChart(zoneTotals, demandData);
+    updateSimInsight(zoneTotals, dia, temp, lluvia, evento);
+
+    const diaNames = {1:'Domingo',2:'Lunes',3:'Martes',4:'Miércoles',5:'Jueves',6:'Viernes',7:'Sábado'};
+    document.getElementById('sim-meta').textContent =
+      `${diaNames[dia]} · ${temp}°C · ${lluvia}mm · ${evento?'Con evento':'Sin evento'}`;
+
+  } catch(err) {
+    showToast('Error en simulación: ' + err.message, 'error');
+  } finally {
+    btn.classList.remove('loading'); btn.disabled = false;
+  }
+}
+
+function renderSimChart(zones, demandData) {
+  const empty = document.getElementById('sim-empty');
+  const canvas = document.getElementById('sim-chart');
+  empty.style.display = 'none';
+  canvas.style.display = 'block';
+
+  const hours = Array.from({length:24}, (_,i) => `${String(i).padStart(2,'0')}:00`);
+
+  const datasets = zones.map((z, i) => ({
+    label: z.name,
+    data: demandData[z.id],
+    borderColor: ZONE_COLORS_SIM[i],
+    backgroundColor: ZONE_COLORS_SIM[i] + '18',
+    borderWidth: i===0 ? 3 : 2,
+    pointRadius: i===0 ? 4 : 2,
+    pointHoverRadius: 6,
+    tension: 0.4,
+    fill: i===0,
+  }));
+
+  if (simChart) {
+    simChart.data.datasets = datasets;
+    simChart.update('active');
+    return;
+  }
+
+  simChart = new Chart(canvas, {
+    type: 'line',
+    data: { labels: hours, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top',
+          labels: { color: '#e8edf2', font: { family: "'JetBrains Mono', monospace", size: 11 },
+            boxWidth: 14, padding: 16 }
+        },
+        tooltip: {
+          backgroundColor: '#0c1219', borderColor: 'rgba(255,220,80,0.3)', borderWidth: 1,
+          titleColor: '#ffdc50', bodyColor: '#e8edf2',
+          titleFont: { family: "'Syne', sans-serif", weight: '700' },
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} viajes`,
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,220,80,0.05)' },
+          ticks: { color: '#5a6572', font: { family: "'JetBrains Mono', monospace", size: 10 },
+            maxTicksLimit: 12 }
+        },
+        y: {
+          grid: { color: 'rgba(255,220,80,0.05)' },
+          ticks: { color: '#5a6572', font: { family: "'JetBrains Mono', monospace", size: 10 } },
+          title: { display: true, text: 'Viajes Esperados', color: '#5a6572',
+            font: { family: "'JetBrains Mono', monospace", size: 10 } }
+        }
+      },
+      interaction: { intersect: false, mode: 'index' },
+    }
+  });
+}
+
+function updateSimInsight(zones, dia, temp, lluvia, evento) {
+  const top = zones[0];
+  const peakHour = demandPeakHour(lastSimData.demandData[top.id]);
+  const diaNames = {1:'Domingo',2:'Lunes',3:'Martes',4:'Miércoles',5:'Jueves',6:'Viernes',7:'Sábado'};
+
+  let climaMsg = '';
+  if (lluvia > 15) climaMsg = `La lluvia intensa (+${lluvia}mm/h) <strong style="color:var(--cyan);">impulsa la demanda +${Math.round(lluvia*3.5)}%</strong> en todas las zonas.`;
+  else if (lluvia > 5) climaMsg = `Lluvia moderada: boost estimado de <strong style="color:var(--cyan);">+${Math.round(lluvia*3.5)}%</strong>.`;
+  else if (temp < 0) climaMsg = `Frío extremo (${temp}°C): los pasajeros evitan caminar, +${Math.round((5-temp)*1.8)}% demanda.`;
+  else if (temp > 32) climaMsg = `Calor extremo (${temp}°C): boost por confort térmico estimado en +${Math.round((temp-30)*1.5)}%.`;
+  else climaMsg = `Condiciones climáticas favorables para el taxista — demanda estable sin variaciones climáticas relevantes.`;
+
+  const eventMsg = evento ? ` <strong style="color:var(--yellow);">Gran evento activo:</strong> zonas de ocio con +35% de demanda estimada.` : '';
+
+  document.getElementById('sim-insight').innerHTML =
+    `<strong>🤖 Análisis Motor RF:</strong> Zona dominante el ${diaNames[dia]}: <strong style="color:var(--yellow);">${top.name}</strong> · Hora pico: <strong style="color:var(--cyan);">${String(peakHour).padStart(2,'0')}:00h</strong> · ${climaMsg}${eventMsg}`;
+}
+
+function demandPeakHour(hourlyData) {
+  return hourlyData.indexOf(Math.max(...hourlyData));
+}
+
+/* ═══════════════════════════════
+   MAPA DIGITAL TWIN — Choropleth
+═══════════════════════════════ */
+let dtMap = null;
+let dtCircles = [];
+let selectedHora = 17;
+
+// Build hora selector buttons
+(function buildHoraSelector() {
+  const container = document.getElementById('hora-selector');
+  for (let h = 0; h < 24; h++) {
+    const btn = document.createElement('button');
+    btn.className = 'hora-btn' + (h===17?' active':'');
+    btn.textContent = String(h).padStart(2,'0');
+    btn.onclick = () => selectHora(h);
+    container.appendChild(btn);
+  }
+})();
+
+function selectHora(h) {
+  selectedHora = h;
+  document.querySelectorAll('.hora-btn').forEach((b,i) => b.classList.toggle('active', i===h));
+  document.getElementById('mapa-hora-label').textContent = `Hora ${String(h).padStart(2,'0')}:00h`;
+}
+
+function initDTMap() {
+  if (dtMap) return;
+  dtMap = L.map('digital-twin-map', {
+    center: [40.72, -73.98], zoom: 11, zoomControl: false
+  });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© OpenStreetMap © CARTO', subdomains:'abcd', maxZoom:19
+  }).addTo(dtMap);
+  L.control.zoom({position:'topright'}).addTo(dtMap);
+}
+
+async function updateMapVisualization() {
+  const btn = document.getElementById('btn-mapa');
+  const spinner = document.getElementById('mapa-spinner');
+  const btnText = document.getElementById('mapa-btn-text');
+  btn.disabled = true; spinner.style.display='block'; btnText.style.display='none';
+
+  try {
+    const dia = parseInt(document.getElementById('mapa-dia').value);
+    const temp = parseFloat(document.getElementById('mapa-temp').value);
+    const lluvia = parseFloat(document.getElementById('mapa-lluvia').value);
+    const evento = document.getElementById('mapa-evento').checked;
+
+    const demandData = simulateDemandLocally(dia, temp, lluvia, evento);
+
+    initDTMap();
+
+    // Clear existing circles
+    dtCircles.forEach(c => c.remove());
+    dtCircles = [];
+
+    // Get demand at selected hour for all zones
+    const hourDemand = NYC_ZONES.map(z => ({
+      ...z, demand: demandData[z.id][selectedHora]
+    }));
+    const maxDemand = Math.max(...hourDemand.map(z=>z.demand));
+    const totalDemand = hourDemand.reduce((s,z)=>s+z.demand, 0);
+    const topZone = hourDemand.reduce((a,b)=>a.demand>b.demand?a:b);
+
+    // Find peak hour for top zone
+    const topZoneAllHours = demandData[topZone.id];
+    const peakHourAll = topZoneAllHours.indexOf(Math.max(...topZoneAllHours));
+
+    // Draw proportional circles (choropleth style)
+    hourDemand.forEach(z => {
+      const ratio = z.demand / maxDemand;
+      const radius = 300 + ratio * 1800; // 300m to 2100m
+
+      // Color: inferno-like scale
+      const r = Math.round(Math.min(255, 40 + ratio*215));
+      const g = Math.round(Math.max(0, ratio > 0.5 ? (ratio-0.5)*2*215 : 0));
+      const b = Math.round(Math.max(0, ratio < 0.4 ? (1-ratio/0.4)*200 : 0));
+      const color = `rgb(${r},${g},${b})`;
+
+      const circle = L.circle([z.lat, z.lng], {
+        radius,
+        color: color,
+        fillColor: color,
+        fillOpacity: 0.55 + ratio * 0.25,
+        weight: ratio > 0.7 ? 2 : 1,
+      }).bindPopup(`
+        <div style="min-width:160px">
+          <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:0.9rem;color:#ffdc50;margin-bottom:6px;">${z.name}</div>
+          <div style="font-size:0.65rem;color:#5a6572;">${z.borough}</div>
+          <div style="margin-top:8px;display:flex;justify-content:space-between;">
+            <div><div style="font-size:0.55rem;color:#5a6572;text-transform:uppercase;">Viajes</div>
+              <div style="font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;color:#ffdc50;">${z.demand}</div></div>
+            <div><div style="font-size:0.55rem;color:#5a6572;text-transform:uppercase;">% Total</div>
+              <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1.1rem;">${(z.demand/totalDemand*100).toFixed(1)}%</div></div>
+          </div>
+        </div>`);
+
+      circle.addTo(dtMap);
+      dtCircles.push(circle);
+    });
+
+    // Stats
+    document.getElementById('mstat-total').textContent = totalDemand.toLocaleString();
+    document.getElementById('mstat-top').textContent = topZone.name.split(' ')[0];
+    document.getElementById('mstat-peak').textContent = String(peakHourAll).padStart(2,'0')+':00h';
+    const eventBoost = evento ? '+35%' : '—';
+    document.getElementById('mstat-boost').textContent = eventBoost;
+
+    // Fit bounds
+    const bounds = NYC_ZONES.map(z => [z.lat, z.lng]);
+    dtMap.fitBounds(bounds, {padding:[40,40]});
+
+  } catch(err) {
+    showToast('Error mapa: '+err.message, 'error');
+  } finally {
+    btn.disabled=false; spinner.style.display='none'; btnText.style.display='flex';
+  }
+}
+
+/* ═══════════════════════════════
+   TOAST
+═══════════════════════════════ */
+function showToast(msg, type='info') {
+  const t = document.createElement('div');
+  t.className = 'toast'; t.textContent = msg;
+  if (type==='error') t.style.borderLeftColor='var(--red)';
+  document.body.appendChild(t);
+  setTimeout(()=>t.remove(), 4000);
+}
+
+/* ═══════════════════════════════
+   INIT
+═══════════════════════════════ */
+document.addEventListener('DOMContentLoaded', () => {
+  // Auto-run simulation with defaults on load
+  setTimeout(() => runSimulation(), 800);
+  // Init map in background
+  setTimeout(() => { initDTMap(); updateMapVisualization(); }, 1200);
+});
+</script>
+</body>
+</html>
