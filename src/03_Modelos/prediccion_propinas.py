@@ -492,13 +492,36 @@ def base_pipeline():
         featuresCol = "features",
         labelCol = "tip_class",
         predictionCol = "prediction",
-        family = "multinomial",
-        maxIter = 100,
-        regParam = 0.1
+        family = "multinomial"#,
+        #maxIter = 100,
+        #regParam = 0.1
     )
 
+    evaluator = MulticlassClassificationEvaluator(
+        labelCol="tip_class",
+        predictionCol="prediction",
+        metricName="f1"
+    )
+
+    paramGrid = (
+        ParamGridBuilder()
+        .addGrid(lr.regParam, [0.01, 0.03, 0.1])
+        .addGrid(lr.elasticNetParam, [0.0, 0.2])
+        .addGrid(lr.maxIter, [50])
+        .build()
+    )
+    
+    tvs = TrainValidationSplit(
+        estimator=lr,
+        estimatorParamMaps=paramGrid,
+        evaluator=evaluator,
+        trainRatio=0.7,
+        seed=42
+    )
+
+
     pipeline = Pipeline(
-        stages = indexers + encoders + [assembler, lr]
+        stages = indexers + encoders + [assembler, tvs]
     )
 
     return pipeline
@@ -579,6 +602,15 @@ def train_model(pipeline: Pipeline, train_df):
     """
 
     model = pipeline.fit(train_df)
+
+    tvs_model = model.stages[-1]
+    best_model = tvs_model.bestModel
+
+    print("Mejores hiperparámetros:")
+    print(f"regParam: {best_model.getRegParam()}")
+    print(f"elasticNetParam: {best_model.getElasticNetParam()}")
+    print(f"maxIter: {best_model.getMaxIter()}")
+
     return model
 
 def evaluate_model(model, test_df):
@@ -711,7 +743,7 @@ def main():
         # -----------------------------------------------------------------------------
         prod_start = time.time()
 
-        prod_model, prod_predicts, prod_f1 = run_model(df_final, "RFT")
+        #prod_model, prod_predicts, prod_f1 = run_model(df_final, "RFT")
         
         prod_stop = time.time()
         prod_time = (prod_stop - prod_start)/60
@@ -720,7 +752,7 @@ def main():
         # -----------------------------------------------------------------------------
         # Guardamos el modelo
         # -----------------------------------------------------------------------------
-        best_model = None
+        """best_model = None
         if base_f1 >= prod_f1:
             best_model = base_model
             print(f"Mejor modelo: Logistic Regressor")
@@ -738,7 +770,7 @@ def main():
             best_model.write().overwrite().save(ruta_final)
             print(" ¡LOGRADO! Modelo guardado correctamente.")
         except Exception as e:
-            print(f"Error persistente al guardar: {e}")
+            print(f"Error persistente al guardar: {e}")"""
 
         spark.stop()
         limpiar_tmp_spark()
