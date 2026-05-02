@@ -333,7 +333,7 @@ def estudio_analítico(df_final):
                 pass
     
     # --- 4) Agregaciones temporales para ver como se distribuyen las propinas
-    print("4) Agregaciones temporale para observar distribución temporal de las propinas")
+    print("\n 4) Agregaciones temporale para observar distribución temporal de las propinas")
     
     print("\n Por Hora")
     df_final.groupBy("hour").agg(
@@ -361,7 +361,7 @@ def estudio_analítico(df_final):
     ).show()
 
     # --- 5) Comparación entre tarifa y comportamiento con la propina
-    print("5) Comparación entre tarifa vs comportamiento con la propina")
+    print("\n 5) Comparación entre tarifa vs comportamiento con la propina")
 
     df_final.groupBy("passenger_count").agg(
         F.count("*").alias("num_trips"),
@@ -533,7 +533,8 @@ def production_pipeline():
 
     # Variables -a priori-
     categorical_cols = [
-        "zone_group",  
+        #"zone_group",
+        "PULocationID",  
         "day_of_week"
     ]
 
@@ -604,12 +605,17 @@ def train_model(pipeline: Pipeline, train_df):
     model = pipeline.fit(train_df)
 
     tvs_model = model.stages[-1]
-    best_model = tvs_model.bestModel
 
-    print("Mejores hiperparámetros:")
-    print(f"regParam: {best_model.getRegParam()}")
-    print(f"elasticNetParam: {best_model.getElasticNetParam()}")
-    print(f"maxIter: {best_model.getMaxIter()}")
+    if hasattr(tvs_model, "bestModel"):
+        best_model = tvs_model.bestModel
+
+        print("Mejores hiperparámetros:")
+        if hasattr(best_model, "getRegParam"):
+            print(f"regParam: {best_model.getRegParam()}")
+        if hasattr(best_model, "getElasticNetParam"):
+            print(f"elasticNetParam: {best_model.getElasticNetParam()}")
+        if hasattr(best_model, "getMaxIter"):
+            print(f"maxIter: {best_model.getMaxIter()}")
 
     return model
 
@@ -649,7 +655,7 @@ def evaluate_model(model, test_df):
     precision = evaluator_precision.evaluate(predictions)
     recall = evaluator_recall.evaluate(predictions)
 
-    print("Evaluación del modelo:")
+    print("\n Evaluación del modelo:")
     print(f"F1: {f1:.4f}")
     print(f"Accuracy: {acc:.4f}")
     print(f"Precision ponderada: {precision:.4f}")
@@ -709,23 +715,23 @@ def main():
     Función principal que orquesta todo el pipeline de análisis.
     """
     print("\n" + "=" * 80)
-    print("  ANÁLISIS DE PODER ADQUISITIVO POR ZONA - NYC TAXI DATA 2023")
+    print("  ANÁLISIS DE PROPINAS A PRIORI - NYC TAXI DATA 2023")
     print("=" * 80)
     
     try:
+
+        import time        
+        start = time.time()
+
         spark = crear_spark_session()
         df_taxi = cargar_datos_taxi(spark)
         #df_fhv = cargar_datos_fhv(spark)
         #df_unificado = unificar_datos(df_taxi, df_fhv)
         #df_metricas = calcular_metricas_por_zona(df_unificado)
-        #df_poder = calcular_poder_adquisitivo(df_metricas)
         df_final = creacion_variables(df_taxi)
-        #df_final = crear_features_avanzadas(df_final)
         df_final = tratar_outliers(df_final)
 
         estudio_analítico(df_final)
-
-        import time
 
         # -----------------------------------------------------------------------------
         # ENTRENAMOS BASELINE
@@ -736,23 +742,23 @@ def main():
 
         base_stop = time.time()
         base_time = (base_stop - base_start)/60
-        print(f"Tiempo de entrenamiento del modelo Baseline: {base_time:.4f} minutos")
+        print(f"Tiempo de entrenamiento del modelo Baseline: {base_time:.4f} minutos\n")
 
         # -----------------------------------------------------------------------------
         # ENTRENAMOS PRODUCTION
         # -----------------------------------------------------------------------------
         prod_start = time.time()
 
-        #prod_model, prod_predicts, prod_f1 = run_model(df_final, "RFT")
+        prod_model, prod_predicts, prod_f1 = run_model(df_final, "RFT")
         
         prod_stop = time.time()
         prod_time = (prod_stop - prod_start)/60
-        print(f"Tiempo de entrenamiento del Random Forest Classifier: {prod_time:.4f} minutos")
+        print(f"Tiempo de entrenamiento del Random Forest Classifier: {prod_time:.4f} minutos \n")
         
         # -----------------------------------------------------------------------------
         # Guardamos el modelo
         # -----------------------------------------------------------------------------
-        """best_model = None
+        best_model = None
         if base_f1 >= prod_f1:
             best_model = base_model
             print(f"Mejor modelo: Logistic Regressor")
@@ -770,10 +776,18 @@ def main():
             best_model.write().overwrite().save(ruta_final)
             print(" ¡LOGRADO! Modelo guardado correctamente.")
         except Exception as e:
-            print(f"Error persistente al guardar: {e}")"""
+            print(f"Error persistente al guardar: {e}")
 
+        # -----------------------------------------------------------------------------
+        # Finalizamos y limpiamos sesión de Spark
+        # -----------------------------------------------------------------------------
         spark.stop()
         limpiar_tmp_spark()
+
+        stop = time.time()
+        time = (stop - start)/60
+        print(f"Tiempo de ejecución: {time:.4f} minutos \n")
+
 
     except Exception as e:
         print(f"\n❌ Error durante la ejecución: {e}")
