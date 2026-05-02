@@ -1401,14 +1401,25 @@ async function predictScore() {
     const key = dia + '_' + hora;
     let top5 = PREDICTIONS[key];
     if (!top5) {
-      // Find nearest key
-      const keys = Object.keys(PREDICTIONS).filter(k => k.startsWith(dia+'_'));
-      if (keys.length > 0) {
-        const nearest = keys.reduce((a, b) => {
-          return Math.abs(parseInt(a.split('_')[1]) - hora) < Math.abs(parseInt(b.split('_')[1]) - hora) ? a : b;
-        });
+      // 1. Try nearest hour within same day
+      const sameDay = Object.keys(PREDICTIONS).filter(k => k.startsWith(dia+'_'));
+      if (sameDay.length > 0) {
+        const nearest = sameDay.reduce((a, b) =>
+          Math.abs(parseInt(a.split('_')[1]) - hora) < Math.abs(parseInt(b.split('_')[1]) - hora) ? a : b);
         top5 = PREDICTIONS[nearest];
       }
+    }
+    if (!top5) {
+      // 2. No data for this day at all — find nearest day+hour across all keys
+      const allKeys = Object.keys(PREDICTIONS);
+      const nearest = allKeys.reduce((a, b) => {
+        const [da, ha] = a.split('_').map(Number);
+        const [db, hb] = b.split('_').map(Number);
+        const distA = Math.abs(da - dia) * 24 + Math.abs(ha - hora);
+        const distB = Math.abs(db - dia) * 24 + Math.abs(hb - hora);
+        return distA < distB ? a : b;
+      });
+      top5 = PREDICTIONS[nearest];
     }
     if (!top5) throw new Error('Sin datos');
     renderRanking(top5, dia, hora);
