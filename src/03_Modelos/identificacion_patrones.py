@@ -12,13 +12,17 @@ import pyspark
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from dotenv import load_dotenv
+import platform
+import sys
 
 load_dotenv()
 os.environ["SPARK_LOCAL_IP"] = "127.0.0.1"
 os.environ["HOSTNAME"] = "localhost"
-os.environ["HADOOP_HOME"] = r"C:\hadoop"
-os.environ["PYSPARK_PYTHON"] = "python"
-os.environ["PYSPARK_DRIVER_PYTHON"] = "python"
+if platform.system() == "Windows":
+    os.environ["HADOOP_HOME"] = r"C:\hadoop"
+    
+os.environ["PYSPARK_PYTHON"] = sys.executable
+os.environ["PYSPARK_DRIVER_PYTHON"] = sys.executable
 
 # --------------------------------------------------
 # MINIO CONFIG
