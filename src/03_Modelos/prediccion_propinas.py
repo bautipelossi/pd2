@@ -173,9 +173,7 @@ def cargar_datos_taxi(spark: SparkSession):
                     "tip_amount",
                     "passenger_count",
                     "fare_amount",
-                    "total_amount",
-                    "trip_distance",
-                    "trip_duration_min"
+                    "total_amount"
                     ]
 
     columnas_existentes = [col for col in columnas_taxi if col in df_taxi.columns]
@@ -237,10 +235,10 @@ def creacion_variables(df_taxi):
 
     df_final = df_final.withColumn(
         "tip_class",
-        F.when(F.col("tip_pct") == 0, 0),
-        F.when(F.col("tip_pct") < 10, 1),
-        F.when(F.col("tip_pct") < 20, 2),
-        F.otherwise(3)
+        F.when(F.col("tip_pct") == 0, 0)
+        .when(F.col("tip_pct") < 10, 1)
+        .when(F.col("tip_pct") < 20, 2)
+        .otherwise(3)
     )
 
     return df_final
@@ -409,7 +407,6 @@ def tratar_outliers(df_spark):
         "tip_amount",
         "fare_amount",
         "total_amount",
-        "trip_distance",
         "tip_pct"
     ]
 
@@ -456,9 +453,9 @@ def tratar_outliers(df_spark):
 
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler
-from pyspark.ml.regression import LinearRegression
 from pyspark.ml.classification import RandomForestClassifier, LogisticRegression
-from pyspark.ml.evaluation import RegressionEvaluator, MulticlassClassificationEvaluator
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 
 def base_pipeline():
 
@@ -495,7 +492,8 @@ def base_pipeline():
         featuresCol = "features",
         labelCol = "tip_class",
         predictionCol = "prediction",
-        maxIter = 20,
+        family = "multinomial",
+        maxIter = 100,
         regParam = 0.1
     )
 
@@ -508,8 +506,6 @@ def base_pipeline():
 # ==============================================================================
 # PASO 7: PRODUCTION MODEL
 # ==============================================================================
-from pyspark.ml.regression import GBTRegressor
-
 def production_pipeline():
 
     # Variables -a priori-
@@ -547,19 +543,20 @@ def production_pipeline():
     )
 
     # MODELO FINAL
-    gbt = RandomForestClassifier(
+    rf = RandomForestClassifier(
         featuresCol="features",
         labelCol="tip_class",
         predictionCol="prediction",
-        maxIter=30,
-        maxDepth=3,
-        stepSize=0.1,
+        numTrees=50,
+        maxDepth=10,
+        minInstancesPerNode=10,
         subsamplingRate=0.8,
+        featureSubsetStrategy="sqrt",
         seed=42
     )
 
     pipeline = Pipeline(
-        stages=indexers + encoders + [assembler, gbt]
+        stages=indexers + encoders + [assembler, rf]
     )
 
     return pipeline
@@ -591,24 +588,6 @@ def evaluate_model(model, test_df):
 
     predictions = model.transform(test_df)
 
-    evaluator_rmse = MulticlassClassificationEvaluator(
-        labelCol = "tip_class",
-        predictionCol = "prediction",
-        metricName = "rmse"
-    )
-
-    evaluator_mae = MulticlassClassificationEvaluator(
-        labelCol = "tip_class",
-        predictionCol = "prediction",
-        metricName = "mae"
-    )
-
-    evaluator_r2 = MulticlassClassificationEvaluator(
-        labelCol = "tip_class",
-        predictionCol = "prediction",
-        metricName = "r2"
-    )
-
     evaluator_f1 = MulticlassClassificationEvaluator(
         labelCol="tip_class", 
         predictionCol="prediction", 
@@ -621,20 +600,30 @@ def evaluate_model(model, test_df):
         metricName="accuracy"
     )
 
-    rmse = evaluator_rmse.evaluate(predictions)
-    mae = evaluator_mae.evaluate(predictions)
-    r2 = evaluator_r2.evaluate(predictions)
+    evaluator_precision = MulticlassClassificationEvaluator(
+        labelCol="tip_class",
+        predictionCol="prediction",
+        metricName="weightedPrecision"
+    )
+
+    evaluator_recall = MulticlassClassificationEvaluator(
+        labelCol="tip_class",
+        predictionCol="prediction",
+        metricName="weightedRecall"
+    )
+
     f1 = evaluator_f1.evaluate(predictions)
     acc = evaluator_acc.evaluate(predictions)
+    precision = evaluator_precision.evaluate(predictions)
+    recall = evaluator_recall.evaluate(predictions)
 
     print("Evaluación del modelo:")
-    print(f"RMSE: {rmse:.4f}")
-    print(f"MAE: {mae:.4f}")
-    print(f"R2: {r2:.4f}")
     print(f"F1: {f1:.4f}")
     print(f"Accuracy: {acc:.4f}")
+    print(f"Precision ponderada: {precision:.4f}")
+    print(f"Recall ponderado: {recall:.4f}")
 
-    return predictions
+    return predictions, f1
 
 def run_model(df, modelo):
     """
@@ -643,9 +632,9 @@ def run_model(df, modelo):
     """
     
     if modelo == "baseline":
-        print("🚀 Starting Linear Regression Baseline...")
+        print("Starting Logistic Regression Baseline...")
     else:
-        print("🚀 Starting Gradient Boost Tree...")
+        print("Starting Random Forest Classifier...")
     
     # 1. Preparar datos
     df = df.drop("tip_amount", "total_amount")
@@ -669,14 +658,14 @@ def run_model(df, modelo):
     model = train_model(pipeline, train_df)
     
     # 6. Evaluar
-    predictions = evaluate_model(model, test_df)
+    predictions, f1 = evaluate_model(model, test_df)
     
     if modelo == "baseline":
         print("✅ Baseline model completed")
     else:
         print("✅ Production model completed")
     
-    return model, predictions
+    return model, predictions, f1
 
 
 # ==============================================================================                
@@ -711,7 +700,7 @@ def main():
         # -----------------------------------------------------------------------------
         base_start = time.time()
 
-        base_model, base_predicts = run_model(df_final, "baseline")
+        base_model, base_predicts, base_f1 = run_model(df_final, "baseline")
 
         base_stop = time.time()
         base_time = (base_stop - base_start)/60
@@ -722,12 +711,35 @@ def main():
         # -----------------------------------------------------------------------------
         prod_start = time.time()
 
-        prod_model, prod_predicts = run_model(df_final, "RFT")
+        prod_model, prod_predicts, prod_f1 = run_model(df_final, "RFT")
         
         prod_stop = time.time()
         prod_time = (prod_stop - prod_start)/60
-        print(f"Tiempo de entrenamiento del GBT Regressor: {prod_time:.4f} minutos")
+        print(f"Tiempo de entrenamiento del Random Forest Classifier: {prod_time:.4f} minutos")
         
+        # -----------------------------------------------------------------------------
+        # Guardamos el modelo
+        # -----------------------------------------------------------------------------
+        best_model = None
+        if base_f1 >= prod_f1:
+            best_model = base_model
+            print(f"Mejor modelo: Logistic Regressor")
+        else:
+            best_model = prod_model
+            print(f"Mejor modelo: Random Forest Classifier")
+        
+        # Guardamos el modelo en local 
+        ruta_modelo_local = Path(__file__).resolve().parents[1] / "modelos" / "mejor_modelo_propinas"
+        print(f"Guardando mejor modelo localmente en: {ruta_modelo_local}")
+        
+        try:
+            # .as_uri() genera automáticamente el esquema "file:///" correcto para Mac, Linux o Windows
+            ruta_final = ruta_modelo_local.as_uri()
+            best_model.write().overwrite().save(ruta_final)
+            print(" ¡LOGRADO! Modelo guardado correctamente.")
+        except Exception as e:
+            print(f"Error persistente al guardar: {e}")
+
         spark.stop()
         limpiar_tmp_spark()
 
