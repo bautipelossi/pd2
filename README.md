@@ -27,6 +27,8 @@
 * Objetivo 2: Limpiar, transformar y unificar datasets masivos usando formato Parquet.
 * Objetivo 3: Analizar patrones temporales de movilidad.
 * Objetivo 4: Desarrollar gráficos interactivos en HTML para la extracción de conclusiones (zonas con más afluencia, horas con más afluencia, motivos de ello...).
+* Objetivo 5: Crear modelos de predicción sobre demanda e ingresos para los taxistas en NYC.
+* Objetivo 6: Despliegue de modelos, gráficas y mapas en una página web.
 
 ---
 
@@ -62,6 +64,7 @@ El repositorio está organizado de forma modular, separando claramente los datos
 pd2/
 ├── .env                           # Variables de entorno locales (no commitear)
 ├── .python-version                # Version de Python para el proyecto
+├── .gitignore                     # Archivos que no se suben a GitHub
 ├── uv.lock                        # Lockfile de uv
 ├── pyproject.toml                 # Dependencias y metadatos
 ├── requirements.txt               # Dependencias (compatibilidad pip)
@@ -206,6 +209,17 @@ python src/07_score/score_rf.py
 
 Los HTML finales estan en `src/08_despliegue` (incluye mapas diarios).
 
+### Paso 6: Ejercicios independientes
+
+Ejercicio 1 de la segunda fase del proyecto, estos ejercicios son independientes al despliegue de la web
+
+```bash
+python src/03_Modelos/prediccion_maxima_demanda.py
+python src/03_Modelos/identificacion_patrones.py
+python src/03_Modelos/prediccion_propinas.py
+```
+
+Las gráficas y mapas creados se guardarán en src/Visualizacion/, en la carpeta correspondiente al ejercicio.
 ---
 
 <a id="trabajo"></a>
@@ -217,6 +231,7 @@ Los HTML finales estan en `src/08_despliegue` (incluye mapas diarios).
 * Fase 1: modelado base y modelos de prediccion (propinas, maxima demanda) con artefactos en `outputs/`.
 * Fase 2: pipeline de extraccion, cruce, scoring y validacion con resultados listos para despliegue.
 * Despliegue en producción: dashboards y HTML en `src/08_despliegue` y `src/04_Visualizaciones`.
+* Ejercicios adicionales que ayudaron al desarrollo del modelo final: Modelo de zona máxima de demanda, predicción de propinas, identificación de patrones, mapa coroplético del poder adquisitivo.
 
 ---
 
