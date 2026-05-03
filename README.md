@@ -65,8 +65,6 @@ pd2/
 ├── uv.lock                        # Lockfile de uv
 ├── pyproject.toml                 # Dependencias y metadatos
 ├── requirements.txt               # Dependencias (compatibilidad pip)
-├── main.py                         
-├── PruebaMinio.py                 # Pruebas de conexion a MinIO
 ├── borrar_modelos_minio.py        # Limpieza de modelos en MinIO
 ├── datos/
 │   ├── crudos/                    # Datos originales
