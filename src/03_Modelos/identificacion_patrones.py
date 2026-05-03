@@ -269,7 +269,7 @@ def plot_weekly_heatmap(demanda_semana, OUT_DIR):
     plt.close()
     
 def plot_global_demand_distribution(demanda, OUT_DIR):
-    print("[NEW] Distribución global por nivel de demanda...")
+    print("[9] Distribución global por nivel de demanda...")
 
     df = (
         demanda
@@ -300,7 +300,7 @@ def plot_global_demand_distribution(demanda, OUT_DIR):
     plt.close()
 
 # --------------------------------------------------
-# GRID CORREGIDO
+# GRID
 # --------------------------------------------------
 def build_full_grid(demanda, zones):
     spark = demanda.sparkSession
@@ -319,7 +319,7 @@ def build_full_grid(demanda, zones):
     )
     
 def map_dominant_demand(demanda, DATA_DIR, OUT_DIR):
-    print("[NEW] Mapa de demanda dominante por zona...")
+    print("[10] Mapa de demanda dominante por zona...")
 
     from pyspark.sql.window import Window
 
@@ -392,7 +392,7 @@ def map_dominant_demand(demanda, DATA_DIR, OUT_DIR):
 
 
 # --------------------------------------------------
-# MAPAS (sin cambios funcionales)
+# MAPAS
 # --------------------------------------------------
 def add_legend(mapa, title="Demanda"):
     legend_html = f"""<div style="position: fixed; bottom: 40px; right: 40px;
@@ -416,18 +416,18 @@ def map_global(demanda, DATA_DIR, OUT_DIR):
     zones["LocationID"] = zones["LocationID"].astype(int)
 
     # ---------------------------
-    # GRID COMPLETO (Spark)
+    # GRID
     # ---------------------------
     demanda_full = build_full_grid(demanda, zones)
 
     # ---------------------------
-    # CUARTILES GLOBALES (Spark)
+    # CUARTILES
     # ---------------------------
     quantiles = demanda_full.approxQuantile("demanda", [0.33, 0.66], 0.01)
     q1, q3 = quantiles[0], quantiles[1]
 
     # ---------------------------
-    # CLASIFICACIÓN (Spark)
+    # CLASIFICACIÓN
     # ---------------------------
     demanda_full = demanda_full.withColumn(
         "nivel",
@@ -436,7 +436,6 @@ def map_global(demanda, DATA_DIR, OUT_DIR):
          .otherwise("media")
     )
 
-    # 👉 SOLO AQUÍ PASAMOS A PANDAS
     demanda_full = demanda_full.toPandas()
 
     # ---------------------------
@@ -496,7 +495,7 @@ def map_local(demanda, DATA_DIR, OUT_DIR):
     demanda_full = build_full_grid(demanda, zones)
 
     # ---------------------------
-    # CUARTILES POR ZONA (Spark)
+    # CUARTILES POR ZONA
     # ---------------------------
     quantiles = (
     demanda_full
@@ -518,7 +517,6 @@ def map_local(demanda, DATA_DIR, OUT_DIR):
      .otherwise("media")
 )
 
-    # 👉 pasar a pandas SOLO AQUÍ
     demanda_local = demanda_local.toPandas()
 
     # ---------------------------
@@ -585,7 +583,6 @@ def clustering_analysis(demanda, DATA_DIR, OUT_DIR, k=3):
         values="demanda"
     ).fillna(0)
 
-    # ⚠️ asegurar orden correcto de horas
     matriz = matriz.reindex(sorted(matriz.columns), axis=1)
 
     # --------------------------------------------------
@@ -779,35 +776,34 @@ def main():
 
     plot_global_demand_distribution(demanda, OUT_DIR)
 
-
     map_dominant_demand(demanda, DATA_DIR, OUT_DIR)
 
     # --------------------------------------------------
     # 4. ANÁLISIS SEMANAL
     # --------------------------------------------------
-    print("\n[9] Analizando demanda por día de la semana...")
+    print("\n[11] Analizando demanda por día de la semana...")
     demanda_semana = build_weekly_demand(df)
 
-    print("[10] Generando curvas semanales...")
+    print("[12] Generando curvas semanales...")
     plot_weekly_curves(demanda_semana, OUT_DIR)
 
-    print("[11] Generando heatmap semanal...")
+    print("[13] Generando heatmap semanal...")
     plot_weekly_heatmap(demanda_semana, OUT_DIR)
 
 
     # --------------------------------------------------
     # 5. MAPAS
     # --------------------------------------------------
-    print("\n[12] Generando mapa global...")
+    print("\n[14] Generando mapa global...")
     map_global(demanda, DATA_DIR, OUT_DIR)
 
-    print("[13] Generando mapa por zona...")
+    print("[15] Generando mapa por zona...")
     map_local(demanda, DATA_DIR, OUT_DIR)
 
     # --------------------------------------------------
     # 6. CLUSTERING
     # --------------------------------------------------
-    print("\n[14] Ejecutando clustering...")
+    print("\n[16] Ejecutando clustering...")
     clustering_analysis(demanda, DATA_DIR, OUT_DIR)
 
     print("\n===================================")
