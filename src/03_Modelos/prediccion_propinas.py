@@ -457,7 +457,7 @@ from pyspark.ml.classification import RandomForestClassifier, LogisticRegression
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 
-def base_pipeline():
+def lr_pipeline():
 
     # Variables -a priori-
     categorical_cols = [
@@ -685,8 +685,8 @@ def run_model(df, modelo):
     train_df, test_df = data_split(df)
 
     # 4. Pipeline
-    if modelo == "baseline":
-        pipeline = base_pipeline()
+    if modelo == "lr":
+        pipeline = lr_pipeline()
     else:
         # Features sin leakage -> no necesarias en el baseline
         train_df, test_df = crear_features_avanzadas(train_df, test_df)
@@ -698,10 +698,10 @@ def run_model(df, modelo):
     # 6. Evaluar
     predictions, f1 = evaluate_model(model, test_df)
     
-    if modelo == "baseline":
-        print("✅ Baseline model completed")
+    if modelo == "lr":
+        print("✅ LR model completed")
     else:
-        print("✅ Production model completed")
+        print("✅ RFC model completed")
     
     return model, predictions, f1
 
@@ -725,24 +725,21 @@ def main():
 
         spark = crear_spark_session()
         df_taxi = cargar_datos_taxi(spark)
-        #df_fhv = cargar_datos_fhv(spark)
-        #df_unificado = unificar_datos(df_taxi, df_fhv)
-        #df_metricas = calcular_metricas_por_zona(df_unificado)
         df_final = creacion_variables(df_taxi)
         df_final = tratar_outliers(df_final)
 
         estudio_analítico(df_final)
 
         # -----------------------------------------------------------------------------
-        # ENTRENAMOS BASELINE
+        # ENTRENAMOS LOGISTIC REGRESSOR
         # -----------------------------------------------------------------------------
-        base_start = time.time()
+        lr_start = time.time()
 
-        base_model, base_predicts, base_f1 = run_model(df_final, "baseline")
+        lr_model, lr_predicts, lr_f1 = run_model(df_final, "lr")
 
-        base_stop = time.time()
-        base_time = (base_stop - base_start)/60
-        print(f"Tiempo de entrenamiento del modelo Baseline: {base_time:.4f} minutos\n")
+        lr_stop = time.time()
+        lr_time = (lr_stop - lr_start)/60
+        print(f"Tiempo de entrenamiento del Logistic Regressor: {lr_time:.4f} minutos\n")
 
         # -----------------------------------------------------------------------------
         # ENTRENAMOS PRODUCTION
@@ -759,8 +756,8 @@ def main():
         # Guardamos el modelo
         # -----------------------------------------------------------------------------
         best_model = None
-        if base_f1 >= prod_f1:
-            best_model = base_model
+        if lr_f1 >= prod_f1:
+            best_model = lr_model
             print(f"Mejor modelo: Logistic Regressor")
         else:
             best_model = prod_model
