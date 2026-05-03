@@ -177,6 +177,9 @@ Entrena o valida modelos segun el objetivo:
 python src/03_Modelos/baseline_1a.py
 python src/03_Modelos/prediccion_propinas.py
 python src/03_Modelos/prediccion_maxima_demanda.py
+python src/03_Modelos/identificacion_patrones.py
+python src/03_Modelos/prediccion_propinas.py
+python src/03_Modelos/nycgeocore.py
 ```
 
 ### Paso 4: Visualizaciones (Fase 1)
@@ -208,26 +211,6 @@ python src/07_score/score_rf.py
 ```
 
 Los HTML finales estan en `src/08_despliegue` (incluye mapas diarios).
-
-### Paso 6: Ejercicios independientes
-
-Ejercicio 1 de la segunda fase del proyecto, estos ejercicios son independientes al despliegue de la web
-
-```bash
-python src/03_Modelos/prediccion_maxima_demanda.py
-python src/03_Modelos/identificacion_patrones.py
-python src/03_Modelos/prediccion_propinas.py
-python src/03_Modelos/nycgeocore.py
-```
-
-Las gráficas y mapas creados se guardarán en src/Visualizacion/, en la carpeta correspondiente al ejercicio, salvo el mapa coroplético que posteriormente hemos usado en nuestra página web, guardado en stc/08_despliegue/mapa_poder_adquisitivo.html
-
-En orden, estos Scripts corresponden a los siguientes ejercicios
-
-* Entrenamiento de un modelo para predecir la zona de máxima demanda de un cierto día a una cierta hora
-* Identificación de patrones de demanda según zona de la ciudad y momento del día
-* Entrenamiento de un modelo para predecir la propina de un cierto viaje
-* Creación de un mapa coroplético de Nueva York, donde el color indica el nivel de poder adquisitivo calculado a partir de datos de taxis
 
 
 ---
